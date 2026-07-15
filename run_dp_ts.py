@@ -18,434 +18,16 @@ from ase.vibrations import Vibrations
 from ase.thermochemistry import HarmonicThermo, IdealGasThermo
 import ase
 
-from slabsite import SlabSite
 from deepmd.calculator import DP
+
+from slabsite import SlabSite
 from ccqn import CCQN
-# from tblite.ase import TBLite
+
+from utils import config as cfgmod
+from utils import geometry as geom
+from utils import constraints as constraint_utils
 
 MODEL = "/data/home/youyinglong/model/dpa230-v2-simp/FeCHO-dpa231-v2-7-3heads-100w.pth"
-
-@dataclass
-class WorkflowConfig:
-    path: str
-    slab: str
-    prepared: str
-    top_x: int
-    enum_ads: bool
-    enum_ts: bool
-    surface_normal: tuple
-    normal_axis: str
-    imag_mode_check: bool
-    imag_mode_displacement: float
-    imag_mode_relax_steps: int
-    bottom_freeze_threshold: float | None
-    use_c_vacancy_io: bool
-    vacancy_input: str | None
-    vacancy_output_dir: str
-    vacancy_element: str
-    vacancy_group_indices: list[int] | None
-    vacancy_z_min: float | None
-    vacancy_cutoff: float
-    vacancy_precision: int
-    vacancy_marker_symbol: str | None
-    vacancy_write_all_members: bool
-    run_irc_final_state: bool
-    irc_fmax: float
-    irc_steps: int
-    irc_dx: float
-    irc_eta: float
-    irc_ninner_iter: int
-    irc_thermo_corrections: bool
-    irc_temperature: float
-    thermo_corrections: bool
-    gas_species_whitelist: list[str] | None
-    gas_pressure_pa: float
-
-
-def parse_surface_normal(text):
-    """Parse '--surface-normal' argument like '0,1,0' or '0 1 0'."""
-    parts = text.replace(",", " ").split()
-    if len(parts) != 3:
-        raise ValueError("surface normal must contain 3 numbers")
-    vec = tuple(float(x) for x in parts)
-    norm = np.linalg.norm(vec)
-    if norm < 1e-12:
-        raise ValueError("surface normal length is zero")
-    return tuple(np.array(vec, dtype=float) / norm)
-
-
-def infer_normal_axis(surface_normal):
-    """Infer dominant Cartesian axis for SlabSite.normal_axis."""
-    axis_names = ["x", "y", "z"]
-    idx = int(np.argmax(np.abs(np.array(surface_normal, dtype=float))))
-    return axis_names[idx]
-
-
-def parse_marker_symbol(text):
-    if text is None:
-        return None
-    value = str(text).strip()
-    if value.lower() in {"", "none", "null"}:
-        return None
-    return value
-
-
-def parse_vacancy_group_indices(text):
-    """Parse vacancy group indices from 'all', '0', '0,2,5', or '0 2 5'."""
-    if text is None:
-        return [0]
-
-    value = str(text).strip()
-    if value == "":
-        return [0]
-    if value.lower() == "all":
-        return None
-
-    parts = value.replace(",", " ").split()
-    indices = [int(x) for x in parts]
-    if len(indices) == 0:
-        return [0]
-    return indices
-
-
-def parse_species_whitelist(text):
-    """Parse gas species whitelist from 'auto', 'all', 'sp_000,sp_003' or 'sp_000 sp_003'."""
-    if text is None:
-        return None
-
-    value = str(text).strip()
-    if value == "":
-        return None
-    if value.lower() in {"auto", "all", "none", "null"}:
-        return None
-
-    parts = value.replace(",", " ").split()
-    if len(parts) == 0:
-        return None
-    return _dedupe_keep_order(parts)
-
-
-def _dedupe_keep_order(items):
-    seen = set()
-    out = []
-    for x in items:
-        if x in seen:
-            continue
-        seen.add(x)
-        out.append(x)
-    return out
-
-
-def resolve_slab_paths_for_workflow(cfg):
-    """Resolve one or more slab paths with optional C-vacancy IO handling."""
-    if cfg.vacancy_input:
-        if not os.path.exists(cfg.vacancy_input):
-            raise FileNotFoundError(f"vacancy input not found: {cfg.vacancy_input}")
-        print(f"Using vacancy input slab: {cfg.vacancy_input}")
-        return [{
-            "group_index": None,
-            "slab_path": os.path.abspath(cfg.vacancy_input),
-            "members": None,
-        }]
-
-    if not cfg.use_c_vacancy_io:
-        return [{
-            "group_index": None,
-            "slab_path": cfg.slab,
-            "members": None,
-        }]
-
-    out_dir = cfg.vacancy_output_dir
-    if not os.path.isabs(out_dir):
-        out_dir = os.path.join(cfg.path, out_dir)
-
-    slab_for_vac = SlabSite(cfg.slab, normal_axis=cfg.normal_axis, z_min=None)
-    saved = slab_for_vac.save_unique_vacancy_structures(
-        output_dir=out_dir,
-        vacancy_element=cfg.vacancy_element,
-        z_min=cfg.vacancy_z_min,
-        cutoff=cfg.vacancy_cutoff,
-        precision=cfg.vacancy_precision,
-        marker_symbol=cfg.vacancy_marker_symbol,
-        write_all_members=cfg.vacancy_write_all_members,
-    )
-
-    if len(saved) == 0:
-        raise RuntimeError("No vacancy structures were generated.")
-
-    print(f"Generated {len(saved)} unique {cfg.vacancy_element}-vacancy groups in {out_dir}")
-
-    if cfg.vacancy_group_indices is None:
-        group_indices = list(range(len(saved)))
-    else:
-        group_indices = _dedupe_keep_order(cfg.vacancy_group_indices)
-
-    selected = []
-    for group_index in group_indices:
-        if group_index < 0 or group_index >= len(saved):
-            raise ValueError(
-                f"vacancy-group-index {group_index} out of range, valid: 0..{len(saved)-1}"
-            )
-        selected_path, members = saved[group_index]
-        selected_path = os.path.abspath(selected_path)
-        print(
-            f"Using vacancy group {group_index}: {selected_path}; "
-            f"equivalent indices: {members}"
-        )
-        selected.append({
-            "group_index": int(group_index),
-            "slab_path": selected_path,
-            "members": members,
-        })
-
-    return selected
-
-
-def get_energy_forces_atom_bond(atoms, ind1, ind2, k, deq):
-    forces = np.zeros(atoms.positions.shape)
-    bd, d = get_distances([atoms.positions[ind1]], [atoms.positions[ind2]], cell=atoms.cell, pbc=atoms.pbc)
-    if d != 0.0:
-        forces[ind1] = 2.0 * bd * (1.0 - deq / d)
-        forces[ind2] = -forces[ind1]
-    else:
-        forces[ind1] = bd
-        forces[ind2] = bd
-    energy = k * (d - deq) ** 2
-    return energy, k * forces
-
-
-def get_energy_forces_site_bond(atoms, ind, site_pos, k, deq):
-    forces = np.zeros(atoms.positions.shape)
-    bd, d = get_distances([atoms.positions[ind]], [site_pos], cell=atoms.cell, pbc=atoms.pbc)
-    if d != 0:
-        forces[ind] = 2.0 * bd * (1.0 - deq / d)
-    else:
-        forces[ind] = bd
-    energy = k * (d - deq) ** 2
-    return energy, k * forces
-
-
-def get_energy_forces_center_bond(atoms, indices, site_pos, k, deq):
-    """Harmonic restraint between adsorbate center and adsorption site."""
-    forces = np.zeros(atoms.positions.shape)
-    if indices is None or len(indices) == 0:
-        return 0.0, forces
-
-    center = np.mean(atoms.positions[indices], axis=0)
-    bd, d = get_distances([center], [site_pos], cell=atoms.cell, pbc=atoms.pbc)
-
-    if d != 0:
-        f_center = 2.0 * bd * (1.0 - deq / d)
-    else:
-        f_center = bd
-
-    # Distribute center force equally to restrained atoms.
-    f_each = f_center / float(len(indices))
-    for idx in indices:
-        forces[idx] += f_each
-
-    energy = k * (d - deq) ** 2
-    return energy, k * forces
-
-
-class HarmonicallyForcedDP(DP):
-    def get_energy_forces(self):
-        energy = 0.0
-        forces = np.zeros(self.atoms.positions.shape)
-        if hasattr(self.parameters, "atom_bond_potentials"):
-            for atom_bond_potential in self.parameters.atom_bond_potentials:
-                e_add, f_add = get_energy_forces_atom_bond(self.atoms, **atom_bond_potential)
-                energy += e_add
-                forces += f_add
-
-        if hasattr(self.parameters, "site_bond_potentials"):
-            for site_bond_potential in self.parameters.site_bond_potentials:
-                e_add, f_add = get_energy_forces_site_bond(self.atoms, **site_bond_potential)
-                energy += e_add
-                forces += f_add
-
-        if hasattr(self.parameters, "center_bond_potentials"):
-            for center_bond_potential in self.parameters.center_bond_potentials:
-                e_add, f_add = get_energy_forces_center_bond(self.atoms, **center_bond_potential)
-                energy += e_add
-                forces += f_add
-
-        if not isinstance(energy, float):
-            energy = energy[0][0]
-        return energy, forces
-
-    def calculate(self, atoms=None, properties=None, system_changes=calculator.all_changes):
-        DP.calculate(self, atoms=atoms, properties=properties, system_changes=system_changes)
-        e_add, f_add = self.get_energy_forces()
-        self.results["energy"] += e_add
-        self.results["free_energy"] += e_add
-        self.results["forces"] += f_add
-
-
-def get_bond_connections(atoms, shift=0, cutoff=1.2, bond_type="nosurf"):
-    if bond_type == "nosurf":
-        atoms = atoms[shift:]
-
-    _, distances = get_distances(atoms.get_positions(), None, atoms.get_cell(), [True, True, True])
-    radii = [covalent_radii[atom.number] for atom in atoms]
-    threshold_matrix = np.add.outer(radii, radii) * cutoff
-    bond_matrix = distances < threshold_matrix
-
-    bonds = []
-    for i in range(len(atoms)):
-        for j in range(i + 1, len(atoms)):
-            if bond_matrix[i, j]:
-                bonds.append((i, j))
-
-    if bond_type == "nosurf":
-        return bonds
-
-    clear_bonds = []
-    for bond in bonds:
-        if bond[0] < shift and bond[1] < shift:
-            continue
-
-        def get_idx(idx):
-            return "X" if idx < shift else idx - shift
-
-        bond_reidx = (get_idx(bond[0]), get_idx(bond[1]))
-        if bond_reidx not in clear_bonds:
-            clear_bonds.append(bond_reidx)
-
-    return clear_bonds
-
-def rotate_about_ads_vertical(stru, ads_idx, angle_deg, surface_normal):
-    """
-    绕吸附原子并沿表面法向的轴旋转结构。
-
-    Parameters
-    ----------
-    stru : ASE Atoms
-        要旋转的分子/片段
-    ads_idx : int
-        吸附原子索引
-    angle_deg : float
-        旋转角度（度）
-    surface_normal : tuple/list
-        表面法向，默认 y 轴
-    """
-    axis = np.array(surface_normal, dtype=float)
-    norm = np.linalg.norm(axis)
-    if norm < 1e-8:
-        raise ValueError("surface_normal 长度为零，无法定义旋转轴")
-    axis /= norm
-
-    if len(ads_idx) == 1:
-        center = stru.get_positions()[ads_idx[0]]
-    elif len(ads_idx) > 1:
-        center = np.mean(stru.get_positions()[np.array(ads_idx)], axis=0)
-    elif len(ads_idx) == 0:
-        center = np.mean(stru.get_positions(), axis=0)
-    else:
-        raise ValueError("ads_idx 长度无效，无法确定旋转中心")
-        
-    stru.rotate(a=angle_deg, v=axis, center=center, rotate_cell=False)
-
-
-def rotate_about_ads_inner_angle(
-    stru,
-    rec_bond,
-    ads_indices,
-    surface_normal,
-    target_min_angle_deg=50.0,
-):
-    """
-    以吸附原子为中心，将断键方向旋转到与表面法向至少形成指定内角。
-
-    返回
-    -------
-    tuple(float, float)
-        (旋转前内角, 实际旋转角)
-    """
-    def _inner_angle_deg(vec, normal_unit):
-        vec_norm = np.linalg.norm(vec)
-        if vec_norm < 1e-12:
-            return 0.0
-        vec_unit = vec / vec_norm
-        cos_theta = np.dot(vec_unit, normal_unit)
-        theta = np.degrees(np.arccos(np.clip(cos_theta, -1.0, 1.0)))
-        return 180.0 - theta if theta > 90.0 else theta
-
-    def _rotate_vec(vec, axis_unit, angle_deg):
-        theta = np.deg2rad(angle_deg)
-        return (
-            vec * np.cos(theta)
-            + np.cross(axis_unit, vec) * np.sin(theta)
-            + axis_unit * np.dot(axis_unit, vec) * (1.0 - np.cos(theta))
-        )
-
-    pos = stru.get_positions()
-    pos1 = pos[rec_bond[0]]
-    pos2 = pos[rec_bond[1]]
-    bond_vec = pos2 - pos1
-
-    bond_norm = np.linalg.norm(bond_vec)
-    if bond_norm < 1e-8:
-        return 0.0, 0.0
-
-    normal = np.array(surface_normal, dtype=float)
-    normal_norm = np.linalg.norm(normal)
-    if normal_norm < 1e-8:
-        raise ValueError("surface_normal 长度为零，无法定义旋转")
-
-    normal_unit = normal / normal_norm
-    bond_unit = bond_vec / bond_norm
-    angle = _inner_angle_deg(bond_unit, normal_unit)
-
-    rotate_angle = target_min_angle_deg - angle
-    if rotate_angle <= 0.0:
-        return angle, 0.0
-
-    rot_axis = np.cross(normal_unit, bond_unit)
-    axis_norm = np.linalg.norm(rot_axis)
-    if axis_norm < 1e-8:
-        fallback_axis = np.array([1.0, 0.0, 0.0])
-        if abs(np.dot(fallback_axis, normal_unit)) > 0.9:
-            fallback_axis = np.array([0.0, 1.0, 0.0])
-        rot_axis = np.cross(normal_unit, fallback_axis)
-        axis_norm = np.linalg.norm(rot_axis)
-        if axis_norm < 1e-8:
-            return angle, 0.0
-
-    rot_axis /= axis_norm
-
-    # 选择能增大“断键-法向内角”的旋转方向，避免方向符号导致越转越垂直。
-    angle_plus = _inner_angle_deg(_rotate_vec(bond_unit, rot_axis, rotate_angle), normal_unit)
-    angle_minus = _inner_angle_deg(_rotate_vec(bond_unit, rot_axis, -rotate_angle), normal_unit)
-    if angle_minus > angle_plus:
-        rot_axis = -rot_axis
-
-    if ads_indices:
-        if rec_bond[0] in ads_indices:
-            ads_idx = rec_bond[0]
-        elif rec_bond[1] in ads_indices:
-            ads_idx = rec_bond[1]
-        else:
-            ads_idx = ads_indices[0]
-    else:
-        ads_idx = rec_bond[0]
-
-    center = pos[ads_idx]
-    stru.rotate(a=rotate_angle, v=rot_axis, center=center, rotate_cell=False)
-    return angle, rotate_angle
-
-
-def rotate_atom_around_axis(point, axis_point, axis_unit, angle_deg):
-    """Rotate one point around an axis using Rodrigues formula."""
-    theta = np.deg2rad(angle_deg)
-    rel = point - axis_point
-    return (
-        axis_point
-        + rel * np.cos(theta)
-        + np.cross(axis_unit, rel) * np.sin(theta)
-        + axis_unit * np.dot(axis_unit, rel) * (1.0 - np.cos(theta))
-    )
-
 
 class DPWorkflow:
     def __init__(
@@ -484,7 +66,7 @@ class DPWorkflow:
         self.rotation_angle_candidates = [0, 90, 180, 270]
         self.surface_normal = tuple(surface_normal)
         self.adsorbate_lift = 0.8
-        self.normal_axis = (normal_axis or infer_normal_axis(self.surface_normal)).lower()
+        self.normal_axis = (normal_axis or cfgmod.infer_normal_axis(self.surface_normal)).lower()
         self.enable_imag_mode_check = bool(enable_imag_mode_check)
         self.imag_mode_displacement = float(imag_mode_displacement)
         self.imag_mode_relax_steps = int(imag_mode_relax_steps)
@@ -498,7 +80,7 @@ class DPWorkflow:
         self.temperature = float(irc_temperature)
         self.enable_thermo_corrections = bool(enable_thermo_corrections)
         self.gas_species_whitelist = (
-            _dedupe_keep_order(list(gas_species_whitelist))
+            cfgmod._dedupe_keep_order(list(gas_species_whitelist))
             if gas_species_whitelist is not None
             else None
         )
@@ -602,7 +184,7 @@ class DPWorkflow:
             symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
 
         bonds = []
-        for i, j in get_bond_connections(atoms, shift=0, cutoff=1.2, bond_type="nosurf"):
+        for i, j in geom.get_bond_connections(atoms, shift=0, cutoff=1.2, bond_type="nosurf"):
             a, b = int(i), int(j)
             if a > b:
                 a, b = b, a
@@ -761,7 +343,7 @@ class DPWorkflow:
         """Build reusable structure constraints for relaxation stages."""
         constraints = [FixAtoms(indices=self._frozen_indices(atoms))]
         if with_internal_bonds:
-            bonds = get_bond_connections(atoms, shift=surf_atom_num, bond_type="nosurf")
+            bonds = geom.get_bond_connections(atoms, shift=surf_atom_num, bond_type="nosurf")
             _, distances = get_distances(atoms.get_positions(), None, atoms.get_cell(), [True, True, True])
             new_bonds = []
             for bond in bonds:
@@ -860,13 +442,13 @@ class DPWorkflow:
         for az in self.rotation_angle_candidates:
             cand = base_stru.copy()
             if az != 0:
-                rotate_about_ads_vertical(cand, ads_idx, az, surface_normal=self.surface_normal)
+                geom.rotate_about_ads_vertical(cand, ads_idx, az, surface_normal=self.surface_normal)
 
             cand_shifted = cand.copy()
             cand_shifted.translate(np.array(pos, dtype=float) + self._site_lift_vector())
             cand_ads = myslab + cand_shifted
             cand_ads.set_constraint(self._build_constraints(cand_ads, surf_atom_num=len(myslab), with_internal_bonds=False))
-            cand_ads.calc = HarmonicallyForcedDP(
+            cand_ads.calc = constraint_utils.HarmonicallyForcedDP(
                 model=MODEL,
                 atom_bond_potentials=atom_bond_params_list,
                 site_bond_potentials=site_bond_params_list,
@@ -914,7 +496,7 @@ class DPWorkflow:
     def _adsorbate_bond_set(self, atoms):
         """Return normalized intramolecular bond set for an adsorbate fragment."""
         bonds = set()
-        for i, j in get_bond_connections(atoms, shift=0, cutoff=1.2, bond_type="nosurf"):
+        for i, j in geom.get_bond_connections(atoms, shift=0, cutoff=1.2, bond_type="nosurf"):
             a, b = int(i), int(j)
             bonds.add((a, b) if a <= b else (b, a))
         return bonds
@@ -979,7 +561,7 @@ class DPWorkflow:
             return []
 
         adjacency = [[] for _ in range(n_atoms)]
-        for a, b in get_bond_connections(stru, shift=0, cutoff=1.2, bond_type="nosurf"):
+        for a, b in geom.get_bond_connections(stru, shift=0, cutoff=1.2, bond_type="nosurf"):
             adjacency[a].append(b)
             adjacency[b].append(a)
 
@@ -1106,11 +688,11 @@ class DPWorkflow:
 
             base_point = pos[moving_idx].copy()
             for ang in [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]:
-                cand_point = rotate_atom_around_axis(base_point, pos[pivot_idx], axis_unit, ang)
+                cand_point = geom.rotate_atom_around_axis(base_point, pos[pivot_idx], axis_unit, ang)
 
                 cand_pos = pos.copy()
                 for idx in rotating_group:
-                    cand_pos[idx] = rotate_atom_around_axis(
+                    cand_pos[idx] = geom.rotate_atom_around_axis(
                         pos[idx].copy(), pos[pivot_idx], axis_unit, ang
                     )
 
@@ -1128,7 +710,7 @@ class DPWorkflow:
 
         if abs(best_ang) > 1e-8:
             for idx in best_group:
-                pos[idx] = rotate_atom_around_axis(
+                pos[idx] = geom.rotate_atom_around_axis(
                     pos[idx].copy(), pos[best_pivot_idx], best_axis_unit, best_ang
                 )
             stru.set_positions(pos)
@@ -1375,7 +957,7 @@ class DPWorkflow:
             return surface_indices
 
         adsorbate_indices = list(range(slab_atom_count, n_atoms))
-        return _dedupe_keep_order(adsorbate_indices + surface_indices)
+        return cfgmod._dedupe_keep_order(adsorbate_indices + surface_indices)
 
 
     def _thermo_analysis(self, atoms, T, name="vib", indices=None, delta=0.01, nfree=2):
@@ -1546,7 +1128,7 @@ class DPWorkflow:
                         )
 
             if not os.path.exists(os.path.join(path, prefix + "_opt.xyz")):
-                calc = HarmonicallyForcedDP(
+                calc = constraint_utils.HarmonicallyForcedDP(
                     model=MODEL,
                     atom_bond_potentials=atom_bond_params_list,
                     site_bond_potentials=site_bond_params_list,
@@ -1674,7 +1256,7 @@ class DPWorkflow:
                                 rescue_atoms.set_constraint(
                                     self._build_constraints(rescue_atoms, surf_atom_num=len(myslab), with_internal_bonds=False)
                                 )
-                                rescue_atoms.calc = HarmonicallyForcedDP(
+                                rescue_atoms.calc = constraint_utils.HarmonicallyForcedDP(
                                     model=MODEL,
                                     atom_bond_potentials=[],
                                     site_bond_potentials=rescue_site_params,
@@ -1813,7 +1395,7 @@ class DPWorkflow:
         for idx, rxn in enumerate(self.rxns_dict):
             preferred_sites = list(rxn.get("valid_reactant_sites", []))
             all_sites = list(rxn.get("valid_reactant_sites_all", preferred_sites))
-            sites = _dedupe_keep_order(preferred_sites + [s for s in all_sites if s not in preferred_sites])
+            sites = cfgmod._dedupe_keep_order(preferred_sites + [s for s in all_sites if s not in preferred_sites])
             backup_sites = set(s for s in sites if s not in preferred_sites)
             accepted_any_site = False
             rec_bond = rxn["broken_bond"]
@@ -1890,7 +1472,7 @@ class DPWorkflow:
                     stru_seed = template["atoms"].copy()
                     template_bonds = {
                         _bond_key(i, j)
-                        for i, j in get_bond_connections(stru_seed, shift=0, cutoff=1.2, bond_type="nosurf")
+                        for i, j in geom.get_bond_connections(stru_seed, shift=0, cutoff=1.2, bond_type="nosurf")
                     }
                     expected_broken_bond = _bond_key(rec_bond[0], rec_bond[1])
 
@@ -1924,7 +1506,7 @@ class DPWorkflow:
                             )
 
                     # 如果断键与表面法线夹角过小，绕吸附原子按内角差值旋转，避免断键过于垂直表面
-                    angle_before, angle_rot = rotate_about_ads_inner_angle(
+                    angle_before, angle_rot = geom.rotate_about_ads_inner_angle(
                         stru_seed,
                         rec_bond=rec_bond,
                         ads_indices=template["ad_idx"],
@@ -1986,7 +1568,7 @@ class DPWorkflow:
 
                         stru = stru_seed.copy()
                         if abs(float(az_angle)) > 1e-8:
-                            rotate_about_ads_vertical(
+                            geom.rotate_about_ads_vertical(
                                 stru=stru,
                                 ads_idx=template["ad_idx"],
                                 angle_deg=float(az_angle),
@@ -2008,7 +1590,7 @@ class DPWorkflow:
                         if endpoint_anchor_added:
                             attempt_msg += "added weak endpoint-site anchor during pre-TS optimization\n"
 
-                        calc = HarmonicallyForcedDP(
+                        calc = constraint_utils.HarmonicallyForcedDP(
                             model=MODEL,
                             atom_bond_potentials=atom_bond_params_list,
                             site_bond_potentials=site_bond_params_list,
@@ -2230,7 +1812,7 @@ class DPWorkflow:
                         ads_only = ads[len(myslab):]
                         final_bonds = {
                             _bond_key(i, j)
-                            for i, j in get_bond_connections(
+                            for i, j in geom.get_bond_connections(
                                 ads_only,
                                 shift=0,
                                 cutoff=1.2,
@@ -2702,10 +2284,6 @@ class DPWorkflow:
         print(f"IRC final-state search finished: {len(results)} cases. Summary: {result_path}")
         return results
     
-    def get_final_state_pairs(self):
-        # TODO
-        return None
-
     def get_final_state_energy(self):
         records = self._load_ts_records()
         if len(records) == 0:
@@ -3250,7 +2828,7 @@ class DPWorkflow:
             if (sp_key == "CO" or sp_name == "CO") and sp_id not in gas_capable_species:
                 gas_capable_species.append(sp_id)
 
-        gas_capable_species = _dedupe_keep_order(gas_capable_species)
+        gas_capable_species = cfgmod._dedupe_keep_order(gas_capable_species)
 
         adsorption_results = []
         for sp_id in gas_capable_species:
@@ -3300,140 +2878,14 @@ class DPWorkflow:
         )
         return adsorption_results
 
-def build_arg_parser():
-    parser = argparse.ArgumentParser(description="Run DP-only adsorption and TS workflow from prepared RMG data")
-    parser.add_argument("--path", default=".")
-    parser.add_argument("--slab", default="./fe3c-010-0.00.poscar")
-    parser.add_argument("--prepared", default="./prepared_data/prepared_rmg_data.yaml")
-    parser.add_argument("--top-x", type=int, default=1, help="Only keep the lowest-energy top X structures per species")
-    parser.add_argument("--enum-ads", action="store_true", help="Enable azimuthal rotation enumeration for adsorption guesses")
-    parser.add_argument("--enum-ts", dest="enum_ts", action="store_true", help="Enable azimuthal rotation enumeration for TS guesses")
-    parser.add_argument("--no-enum-ts", dest="enum_ts", action="store_false", help="Disable azimuthal rotation enumeration for TS guesses")
-    parser.add_argument("--surface-normal", default="0,0,1", help="Surface normal vector, e.g. '0,0,1'")
-    parser.add_argument("--normal-axis", choices=["x", "y", "z"], default='z', help="Optional normal axis for SlabSite; inferred from surface normal if omitted")
-    parser.add_argument("--bottom-freeze-threshold", type=float, default=None, help="Freeze atoms with coordinate below this threshold along normal axis")
-    
-    parser.add_argument("--imag-mode-check", dest="imag_mode_check", action="store_true", help="Run +/- imaginary-mode displacement endpoint checks after TS search")
-    parser.add_argument("--no-imag-mode-check", dest="imag_mode_check", action="store_false", help="Disable +/- imaginary-mode displacement endpoint checks")
-    parser.add_argument("--imag-mode-displacement", type=float, default=0.15, help="Displacement amplitude (Angstrom) for imaginary-mode endpoint checks")
-    parser.add_argument("--imag-mode-relax-steps", type=int, default=40, help="MDMin steps for each imaginary-mode displaced endpoint")
-    
-    parser.add_argument("--use-c-vacancy-io", action="store_true", help="Generate unique C-vacancy structures and use one or more as slab input")
-    parser.add_argument("--vacancy-input", default=None, help="Directly use an existing vacancy structure file as slab input")
-    parser.add_argument("--vacancy-output-dir", default="c_vacancy_structures", help="Output directory for generated vacancy structures")
-    parser.add_argument("--vacancy-element", default="C", help="Element to remove when generating vacancies")
-    parser.add_argument(
-        "--vacancy-group-index",
-        default="all",
-        help="Vacancy group indices to run, e.g. 'all', '0', or '0,2,5'",
-    )
-    parser.add_argument("--vacancy-z-min", type=float, default=None, help="Optional z_min for surface vacancy screening")
-    parser.add_argument("--vacancy-cutoff", type=float, default=4.0, help="Neighbor cutoff for vacancy environment fingerprint")
-    parser.add_argument("--vacancy-precision", type=int, default=3, help="Distance rounding precision for vacancy fingerprint")
-    parser.add_argument("--vacancy-marker-symbol", default=None, help="Marker symbol for hole site; use 'none' to disable")
-    parser.add_argument("--vacancy-write-all-members", action="store_true", help="Also write all equivalent vacancy members")
-    
-    parser.add_argument("--run-irc-final-state", action="store_true", help="Run IRC from generated TS records and search final states")
-    parser.add_argument("--irc-fmax", type=float, default=0.08, help="fmax used in IRC optimization")
-    parser.add_argument("--irc-steps", type=int, default=200, help="Maximum IRC steps for each direction")
-    parser.add_argument("--irc-dx", type=float, default=0.1, help="IRC step size dx")
-    parser.add_argument("--irc-eta", type=float, default=0.0002, help="IRC eta parameter")
-    parser.add_argument("--irc-ninner-iter", type=int, default=50, help="IRC ninner_iter parameter")
-    parser.add_argument(
-        "--irc-thermo-corrections",
-        dest="irc_thermo_corrections",
-        action="store_true",
-        help="Enable vibration-based ZPE/G corrections in get_final_state_IRC",
-    )
-    parser.add_argument(
-        "--no-irc-thermo-corrections",
-        dest="irc_thermo_corrections",
-        action="store_false",
-        help="Disable vibration-based ZPE/G corrections in get_final_state_IRC",
-    )
-    parser.add_argument(
-        "--irc-temperature",
-        type=float,
-        default=573.15,
-        help="Temperature (K) used for IRC vibration free-energy corrections",
-    )
-
-    parser.add_argument(
-        "--thermo-corrections",
-        dest="thermo_corrections",
-        action="store_true",
-        help="Enable thermo corrections (ZPE/G) in final-state energy evaluation",
-    )
-    parser.add_argument(
-        "--no-thermo-corrections",
-        dest="thermo_corrections",
-        action="store_false",
-        help="Disable thermo corrections and set all correction terms/sources to 0",
-    )
-    parser.add_argument(
-        "--gas-species-whitelist",
-        default="auto",
-        help="Optional gas-species whitelist, e.g. 'sp_000,sp_003'. Use 'auto' to infer from ad_idx=[]",
-    )
-    parser.add_argument(
-        "--gas-pressure-pa",
-        type=float,
-        default=101325.0,
-        help="Gas pressure (Pa) for ideal-gas free energy corrections, e.g. 8.3e5 for 0.83 MPa",
-    )
-    
-    parser.set_defaults(enum_ts=True)
-    parser.set_defaults(imag_mode_check=True)
-    parser.set_defaults(use_c_vacancy_io=False)
-    parser.set_defaults(run_irc_final_state=False)
-    parser.set_defaults(irc_thermo_corrections=False)
-    parser.set_defaults(thermo_corrections=True)
-    return parser
-
-
-def config_from_args(args):
-    return WorkflowConfig(
-        path=args.path,
-        slab=args.slab,
-        prepared=args.prepared,
-        top_x=args.top_x,
-        enum_ads=args.enum_ads,
-        enum_ts=args.enum_ts,
-        surface_normal=parse_surface_normal(args.surface_normal),
-        normal_axis=args.normal_axis,
-        imag_mode_check=args.imag_mode_check,
-        imag_mode_displacement=args.imag_mode_displacement,
-        imag_mode_relax_steps=args.imag_mode_relax_steps,
-        bottom_freeze_threshold=args.bottom_freeze_threshold,
-        use_c_vacancy_io=args.use_c_vacancy_io,
-        vacancy_input=args.vacancy_input,
-        vacancy_output_dir=args.vacancy_output_dir,
-        vacancy_element=args.vacancy_element,
-        vacancy_group_indices=parse_vacancy_group_indices(args.vacancy_group_index),
-        vacancy_z_min=args.vacancy_z_min,
-        vacancy_cutoff=args.vacancy_cutoff,
-        vacancy_precision=args.vacancy_precision,
-        vacancy_marker_symbol=parse_marker_symbol(args.vacancy_marker_symbol),
-        vacancy_write_all_members=args.vacancy_write_all_members,
-        run_irc_final_state=args.run_irc_final_state,
-        irc_fmax=args.irc_fmax,
-        irc_steps=args.irc_steps,
-        irc_dx=args.irc_dx,
-        irc_eta=args.irc_eta,
-        irc_ninner_iter=args.irc_ninner_iter,
-        irc_thermo_corrections=args.irc_thermo_corrections,
-        irc_temperature=args.irc_temperature,
-        thermo_corrections=args.thermo_corrections,
-        gas_species_whitelist=parse_species_whitelist(args.gas_species_whitelist),
-        gas_pressure_pa=args.gas_pressure_pa,
-    )
+from utils.workflow import DPWorkflow
 
 
 if __name__ == "__main__":
-    parser = build_arg_parser()
+    parser = cfgmod.build_arg_parser()
     args = parser.parse_args()
-    cfg = config_from_args(args)
-    slab_entries = resolve_slab_paths_for_workflow(cfg)
+    cfg = cfgmod.config_from_args(args)
+    slab_entries = cfgmod.resolve_slab_paths_for_workflow(cfg)
 
     for entry in slab_entries:
         group_index = entry["group_index"]
@@ -3471,11 +2923,11 @@ if __name__ == "__main__":
             gas_pressure_pa=cfg.gas_pressure_pa,
             output_suffix=output_suffix,
         )
-        # workflow.generate_initial_adsorbate_guesses()
-        # workflow.generate_rxn_ts_guesses_ccqn()
-        # if cfg.run_irc_final_state:
-        #     workflow.get_final_state_IRC()
-        # workflow.get_final_state_energy()
+        workflow.generate_initial_adsorbate_guesses()
+        workflow.generate_rxn_ts_guesses_ccqn()
+        if cfg.run_irc_final_state:
+            workflow.get_final_state_IRC()
+        workflow.get_final_state_energy()
         workflow.get_ads_energy()
 
         if output_suffix:
