@@ -157,7 +157,7 @@ def carbon_oxygen_constraint(G):
     """确保所有中间体的碳原子数不超过 2 个，中间体中 C 和 O 原子的总和不超过 3"""
     carbon_count = sum(1 for _, data in G.nodes(data=True) if data['symbol'] == 'C')
     oxygen_count = sum(1 for _, data in G.nodes(data=True) if data['symbol'] == 'O')
-    if carbon_count > 2 or (carbon_count + oxygen_count) > 3:
+    if carbon_count > 1 or (carbon_count + oxygen_count) > 3:
         return True
     return False
 
@@ -234,11 +234,6 @@ class ReactionNetwork:
                     self.products.append(p)
                     self.network.add_node(p, name=get_name(p))  # 添加产物到网络中
 
-                # 获得节点数目，节点少的为r1
-                # if len(r1) < len(r2):
-                #     rec = ('2->1', (r1, r2), p)
-                # else:
-                #     rec = ('2->1', (r2, r1), p)
                 rec = ('2->1', (r1, r2), p)
 
                 if self.check_rec(rec):
@@ -248,10 +243,6 @@ class ReactionNetwork:
                             self.network.add_edge(r1, node, reaction=rec)
                             self.network.add_edge(r2, node, reaction=rec)
                     
-    
-    def bonding_self(self, r):
-        # TODO: 实现自身连接的反应
-        pass
         
     # 解离反应
     def break_bond(self, r):
@@ -270,11 +261,6 @@ class ReactionNetwork:
                     if f2:
                         self.products.append(p2)
                         self.network.add_node(p2, name=get_name(p2))  # 添加产物到网络中
-                        
-                    # if len(p1) < len(p2):
-                    #     rec = ('1->2', r, (p1, p2))
-                    # else:
-                    #     rec = ('1->2', r, (p2, p1))
 
                     rec = ('1->2', r, (p1, p2))
                     
@@ -404,25 +390,43 @@ class ReactionNetwork:
         self.rd_reactions = reactions
 
     def standardized_mol(self, G):
+        # 第一部分: 针对O型节点，提升其与C的键阶
         for node, data in G.nodes(data=True):
             if data['symbol'] == 'O' and len(list(G.neighbors(node))) < 2:
                 idx = node
                 for neighbor in G.neighbors(idx):
-                    if G.nodes[neighbor]['symbol'] == 'C' and len(list(G.neighbors(node))) < 4:
-                        G.add_edge(idx, neighbor, order=2.0)
-
+                    if G.nodes[neighbor]['symbol'] == 'C':
+                        # 统计C当前所有order之和
+                        c_bond_sum = sum(
+                            G[neighbor][n].get('order', 1.0)
+                            for n in G.neighbors(neighbor)
+                        )
+                        symbol = G.nodes[neighbor]['symbol']
+                        c_need = full_connect_num[symbol] - c_bond_sum
+                        # O与C之间提升双键，前提是C剩余价最多还能补1
+                        # 假设当前order为1.0
+                        curr_order = G[idx][neighbor].get('order', 1.0)
+                        if c_need >= 1 and curr_order < 2.0:
+                            # 仅在不超限时提升
+                            G[idx][neighbor]['order'] = min(2.0, curr_order + c_need, c_bond_sum + 1)
+        
+        # 第二部分: 针对X型节点，补足其邻居的价态
         for node, data in G.nodes(data=True):
             if data['symbol'] == 'X':
                 idx = node
                 for neighbor in G.neighbors(idx):
-                    bond_num = 0
-                    for n in G.neighbors(neighbor):
-                        bond_num += G[neighbor][n]['order']
-                    if bond_num < full_connect_num[G.nodes[neighbor]['symbol']]:
-                        d = full_connect_num[G.nodes[neighbor]['symbol']] - bond_num + 1
-                        G.add_edge(idx, neighbor, order=d)
+                    # 计算neighbor的所有键阶之和
+                    bond_num = sum(
+                        G[neighbor][n].get('order', 1.0)
+                        for n in G.neighbors(neighbor)
+                    )
+                    symbol = G.nodes[neighbor]['symbol']
+                    need = full_connect_num[symbol] - bond_num
+                    if need > 0:
+                        # 将这条边的order设为目前order+d，不是直接d
+                        current_order = G[idx][neighbor].get('order', 1.0)
+                        G[idx][neighbor]['order'] = current_order + need
 
-        
         G_std = nx.Graph()
         for node, data in G.nodes(data=True):
             symbol = data['symbol']
@@ -436,9 +440,9 @@ class ReactionNetwork:
                 bonds.append((neighbor, G[node][neighbor]['order']))
                 bond_num += G[node][neighbor]['order']
             # 计算孤对数
-            elec = elec_num[symbol] - bond_num
-            lone_pairs = elec // 2
-            unpaired_electrons = elec % 2
+            elec = max(0.0, elec_num[symbol] - bond_num)
+            lone_pairs = int(elec // 2)
+            unpaired_electrons = int(elec % 2)
             charge = 0
             unfull_flag = full_connect_num[symbol] - bond_num > 0
             if 'flag' in data:
@@ -518,17 +522,33 @@ class ReactionNetwork:
     
     def get_rec_rmg(self, rec, idx):
         r, p = self.standardized_rec(rec)
+
+        r_edges = set()
+        for node1, node2, data in r.edges(data=True):
+            if r.nodes[node1]['symbol'] == 'X' or r.nodes[node2]['symbol'] == 'X':
+                continue
+            r_edges.add((node1, node2))
+        p_edges = set()
+        for node1, node2, data in p.edges(data=True):
+            if p.nodes[node1]['symbol'] == 'X' or p.nodes[node2]['symbol'] == 'X':
+                continue
+            p_edges.add((node1, node2))
+        broken_bond = r_edges - p_edges
+        broken_bond = list(broken_bond)[0]
+
+        r.nodes[broken_bond[0]]['label'] = True
+        r.nodes[broken_bond[1]]['label'] = True
+
         reaction = f"{get_name(r)} -> {get_name(p)}"
         r = networkx_to_rmg(r)
         p = networkx_to_rmg(p)
 
-        
-        
         # 使用yaml格式保存
         msg = {
             'index': idx,
             'product': p,
             'reactant': r,
+            # 'broken_bond': f'{broken_bond[0]}-{broken_bond[1]}',
             'reaction': reaction,
             'reaction_family': 'Surface'
         }
@@ -548,6 +568,8 @@ def networkx_to_rmg(networkx_graph):
         atom.radical_electrons = data['unpaired_electrons']
         atom.charge = data['charge']
         atom.lone_pairs = data['lone_pairs']
+        if 'label' in data:
+            atom.label = f"*"
         rmg_molecule.add_atom(atom)
         atom_mapping[node] = atom
     
@@ -571,47 +593,30 @@ target_formula = [
 target = [get_molecule(f) for f in target_formula]
 constrains = [oxygen_constraint, carbon_oxygen_constraint, carbon_oh_constraint]
 
-species = [get_molecule('CO'), get_molecule('H2')]
+species = [get_molecule('CO2'), get_molecule('H2')]
 
 recnet = ReactionNetwork(species, target, constrains)
-# recnet.run()
-# recnet.save()
+recnet.run()
+recnet.save()
 recnet = recnet.load()
 # recnet.draw_network()
-
-# print(len(recnet.species))
-# print(len(recnet.network.nodes))
-# print(len(recnet.reactions))
-# print(len(recnet.network.edges))
-
 recnet.reduce_rec()
-rec = recnet.rd_reactions[0]
 
-msg = recnet.get_rec_rmg(rec, 0)
+# rec = recnet.rd_reactions[28]
+# msg = recnet.get_rec_rmg(rec, 0)
 
-rec2 = recnet.rd_reactions[5]
-msg2 = recnet.get_rec_rmg(rec2, 1)
+# rec2 = recnet.rd_reactions[-1]
+# msg2 = recnet.get_rec_rmg(rec2, 1)
 
-rec3 = recnet.rd_reactions[1]
-msg3 = recnet.get_rec_rmg(rec3, 2)
+# rec3 = recnet.rd_reactions[15]
+# msg3 = recnet.get_rec_rmg(rec3, 2)
+
+msg = []
+
+for idx, rec in enumerate(recnet.rd_reactions):
+    msg.append(recnet.get_rec_rmg(rec, idx))
 
 with open('./test.yaml', 'w') as f:
-    yaml.dump(data=[msg, msg2, msg3], stream=f)
+    yaml.dump(data=msg, stream=f)
 
-# with open('./rxn_test.yaml', 'r') as f:
-#     msg = yaml.load(f, Loader=yaml.FullLoader)
-#     #print(msg)
-
-# print(msg[0])
-
-# 打印所有的反应
-# recnet.reduce_rec()
-# print(len(recnet.rd_reactions))
-# for rec in recnet.rd_reactions:
-#     if rec[0] == '2->1':
-#         print(f"{get_name(rec[1][0])} + {get_name(rec[1][1])} -> {get_name(rec[2])}")
-#     elif rec[0] == '1->2':
-#         print(f"{get_name(rec[1])} -> {get_name(rec[2][0])} + {get_name(rec[2][1])}")
-#     elif rec[0] == '1->1':
-#         print(f"{get_name(rec[1])} -> {get_name(rec[2])}")
 

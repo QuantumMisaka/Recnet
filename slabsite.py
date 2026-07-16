@@ -390,40 +390,6 @@ class SlabSite():
         self.saved_vacancy_files = saved
         return saved
 
-    def todo_func():
-    # def filter_sites(self):
-    #     middle = sum(self.stru.cell) / 2.0
-    #     sites = [{'position': site, 'site': 'no', 'morphology': 'unknown'} for i, site in enumerate(self.sites)]
-        
-    #     unique_site_lists,unique_site_pairs_lists,single_site_bond_params_lists,double_site_bond_params_lists = generate_unique_placements(self.stru, sites)
-
-    #     self.single_site_bond_params_lists = single_site_bond_params_lists
-    #     self.single_sites_lists = unique_site_lists
-    #     self.double_site_bond_params_lists = double_site_bond_params_lists
-    #     self.double_sites_lists = unique_site_pairs_lists
-
-    #     print(len(unique_site_lists), len(unique_site_pairs_lists))
-        
-    # def show_pairs(self):
-    #     stru = self.stru
-    #     unique_sites = self.unique_sites['pos']
-    #     pairs = self.pairs
-
-    #     k = 0
-
-    #     for i, site in enumerate(unique_sites):
-    #         site = Atoms('H', positions=site)
-    #         stru.extend(site)
-
-    #         for j in pairs[i]:
-    #             site = Atoms('H', positions=unique_sites[j])
-    #             stru.extend(site)
-
-    #         break
-    #     view(stru)
-        pass
-
-
 
 if __name__ == "__main__":
 

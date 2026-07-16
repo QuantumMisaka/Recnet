@@ -1,13 +1,26 @@
-#!/usr/bin/env python3
-"""
-Entry point for the DP adsorption/TS/workflow pipeline.
-
-Delegates to the WorkflowContext + handler modules under utils/.
-"""
 import argparse
-
 from utils import config as cfgmod
-from utils.workflow import DPWorkflow
+from workflow.context import WorkflowContext
+from workflow.handlers.adsorption import AdsorptionHandler
+from workflow.handlers.ts import TSHandler
+from workflow.handlers.irc import IRCHandler
+from workflow.handlers.energy import EnergyHandler
+
+class DPWorkflow:
+    def __init__(self, **kwargs):
+        self.ctx = WorkflowContext(**kwargs)
+        self.ads_handler = AdsorptionHandler(self.ctx)
+        self.ts_handler = TSHandler(self.ctx)
+        self.irc_handler = IRCHandler(self.ctx) if self.ctx.run_irc_final_state else None
+        self.energy_handler = EnergyHandler(self.ctx)
+
+    def run(self):
+        self.ads_handler.run()
+        self.ts_handler.run()
+        if self.irc_handler:
+            self.irc_handler.run()
+        self.energy_handler.run_final_state_energy()
+        self.energy_handler.run_adsorption_energy()
 
 
 if __name__ == "__main__":
@@ -20,11 +33,6 @@ if __name__ == "__main__":
         group_index = entry["group_index"]
         slab_path_for_run = entry["slab_path"]
         output_suffix = f"vg{group_index}" if group_index is not None else ""
-
-        if output_suffix:
-            print(f"\n===== Start workflow for vacancy group {group_index} =====")
-        else:
-            print("\n===== Start workflow =====")
 
         workflow = DPWorkflow(
             path=cfg.path,
@@ -52,14 +60,4 @@ if __name__ == "__main__":
             gas_pressure_pa=cfg.gas_pressure_pa,
             output_suffix=output_suffix,
         )
-        workflow.generate_initial_adsorbate_guesses()
-        workflow.generate_rxn_ts_guesses_ccqn()
-        if cfg.run_irc_final_state:
-            workflow.get_final_state_IRC()
-        workflow.get_final_state_energy()
-        workflow.get_ads_energy()
-
-        if output_suffix:
-            print(f"===== Finished workflow for vacancy group {group_index} =====\n")
-        else:
-            print("===== Finished workflow =====\n")
+        workflow.run()

@@ -23,10 +23,15 @@ from .geometry import (
 	rotate_about_ads_vertical,
 	rotate_atom_around_axis,
 )
+from .context import WorkflowContext
+from .workflow import DPWorkflow
 
 _dedupe_keep_order = dedupe_keep_order
 
 __all__ = [
+	"WorkflowConfig",
+	"WorkflowContext",
+	"DPWorkflow",
 	"WorkflowConfig",
 	"build_arg_parser",
 	"config_from_args",
