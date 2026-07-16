@@ -16,7 +16,20 @@ from ase.thermochemistry import HarmonicThermo, IdealGasThermo
 from deepmd.calculator import DP
 
 from .context import WorkflowContext, MODEL
-from . import config as cfgmod
+from ..utils import config as cfgmod
+
+
+class EnergyHandler:
+    """Evaluates final-state energies and adsorption energies."""
+
+    def __init__(self, ctx: WorkflowContext):
+        self.ctx = ctx
+
+    def run_final_state_energy(self):
+        return get_final_state_energy(self.ctx)
+
+    def run_adsorption_energy(self):
+        return get_ads_energy(self.ctx)
 
 
 def get_final_state_energy(ctx: WorkflowContext):

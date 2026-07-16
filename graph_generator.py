@@ -602,15 +602,6 @@ recnet = recnet.load()
 # recnet.draw_network()
 recnet.reduce_rec()
 
-# rec = recnet.rd_reactions[28]
-# msg = recnet.get_rec_rmg(rec, 0)
-
-# rec2 = recnet.rd_reactions[-1]
-# msg2 = recnet.get_rec_rmg(rec2, 1)
-
-# rec3 = recnet.rd_reactions[15]
-# msg3 = recnet.get_rec_rmg(rec3, 2)
-
 msg = []
 
 for idx, rec in enumerate(recnet.rd_reactions):

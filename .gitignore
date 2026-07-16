@@ -1,3 +1,2 @@
-graph_generator_old.py
 *.sh
-run_dp_ts_old.py
+*_old.py

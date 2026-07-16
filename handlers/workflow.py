@@ -4,22 +4,24 @@ DPWorkflow — orchestrator that delegates each stage to the appropriate handler
 from __future__ import annotations
 
 from .context import WorkflowContext
-from . import adsorption
-from . import ts
-from . import irc
-from . import energy
+from ..utils import adsorption
+from ..utils import ts
+from ..utils import irc
+from ..utils import energy
 
 
 class DPWorkflow:
     """Top-level workflow facade.
 
-    Delegates to handler modules for adsorption, TS, IRC, and energy stages.
+    Delegates to handler classes for adsorption, TS, IRC, and energy stages.
     """
 
     def __init__(self, **kwargs):
         self.ctx = WorkflowContext(**kwargs)
-        # Keep alias for backward compat with some inline uses of self.xxx
-        self.run_irc_final_state = self.ctx.run_irc_final_state
+        self.adsorption_handler = adsorption.AdsorptionHandler(self.ctx)
+        self.ts_handler = ts.TSHandler(self.ctx)
+        self.irc_handler = irc.IRCHandler(self.ctx)
+        self.energy_handler = energy.EnergyHandler(self.ctx)
 
     # Proxy context attributes so code that accesses self.xxx still works
     def __getattr__(self, name):
@@ -29,19 +31,19 @@ class DPWorkflow:
 
     # ---- Stage methods --------------------------------------------------
     def generate_initial_adsorbate_guesses(self):
-        adsorption.generate_initial_adsorbate_guesses(self.ctx)
+        self.adsorption_handler.run()
 
     def generate_rxn_ts_guesses_ccqn(self):
-        ts.generate_rxn_ts_guesses_ccqn(self.ctx)
+        self.ts_handler.run()
 
     def get_final_state_IRC(self):
-        return irc.get_final_state_IRC(self.ctx)
+        return self.irc_handler.run()
 
     def get_final_state_energy(self):
-        return energy.get_final_state_energy(self.ctx)
+        return self.energy_handler.run_final_state_energy()
 
     def get_ads_energy(self):
-        return energy.get_ads_energy(self.ctx)
+        return self.energy_handler.run_adsorption_energy()
 
 
 __all__ = ["DPWorkflow"]

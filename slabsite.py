@@ -9,7 +9,7 @@ import math
 from copy import deepcopy
 from ase.geometry import get_distances
 
-def is_point_in_parallelepiped(p, a, b, c, origin=np.array([0, 0, 0])):
+def _is_point_in_parallelepiped(p, a, b, c, origin=np.array([0, 0, 0])):
     """
     判断一个点是否处于由三个向量组成的六面体内。
 
@@ -88,7 +88,7 @@ class SlabSite():
 
         mask = []
         for pos in stru.positions:
-            mask.append(is_point_in_parallelepiped(pos, a, b, c))
+            mask.append(_is_point_in_parallelepiped(pos, a, b, c))
 
         # 利用mask过滤掉不在六面体内的原子
         stru = stru[mask]
@@ -97,7 +97,7 @@ class SlabSite():
 
         mask = []
         for pos in vertices:
-            mask.append(is_point_in_parallelepiped(pos, a, b, c))
+            mask.append(_is_point_in_parallelepiped(pos, a, b, c))
 
         vertices = vertices[mask]
         

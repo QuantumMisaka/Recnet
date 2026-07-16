@@ -7,7 +7,7 @@ Delegates to the WorkflowContext + handler modules under utils/.
 import argparse
 
 from utils import config as cfgmod
-from utils.workflow import DPWorkflow
+from handlers import DPWorkflow
 
 
 if __name__ == "__main__":

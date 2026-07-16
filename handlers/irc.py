@@ -19,6 +19,16 @@ from deepmd.calculator import DP
 from .context import WorkflowContext, MODEL
 
 
+class IRCHandler:
+    """Runs IRC from TS records and selects final-state endpoints."""
+
+    def __init__(self, ctx: WorkflowContext):
+        self.ctx = ctx
+
+    def run(self):
+        return get_final_state_IRC(self.ctx)
+
+
 def get_final_state_IRC(ctx: WorkflowContext):
     """Run IRC from each TS record and pick the clearly dissociated endpoint."""
     try:
