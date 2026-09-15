@@ -1,0 +1,16 @@
+{
+  "model": null,
+  "head": "ft2dp",
+  "_readme": [
+    "model: FT2DP DPA4 检查点 (.pt)。绝对路径，或相对 Recnet 仓库根目录。",
+    "       null = 保持管线内置默认模型（旧 DPA2.3.1），即适配器不生效。",
+    "head : 多头模型的头名（model branch）。单头/冻结模型请设为 null。",
+    "优先级：命令行参数 > 环境变量 RECNET_DP_MODEL / RECNET_DP_HEAD > 本文件。",
+    "本地干跑示例：",
+    "  RECNET_DP_MODEL=../model/ft2dp-dpa4/multitask-forgetting-20260711/ft2dp-dpa4-air-multitask-replay-lr350e-3-regular-100k.pt \\",
+    "    python -m recnet_adapter check",
+    "部署（SAI）：把 model 指向 $R/model-candidates/<TAG>/ 下交付的检查点。",
+    "历史默认（管线内置，未映射时仍生效）：",
+    "  /data/home/youyinglong/model/dpa230-v2-simp/FeCHO-dpa231-v2-7-3heads-100w.pth"
+  ]
+}

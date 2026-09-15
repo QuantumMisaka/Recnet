@@ -1,0 +1,110 @@
+[recnet_adapter] deepmd.calculator.DP -> head='ft2dp'
+[recnet_adapter] MODEL -> /home/james/work/ft2dp-dpeva/model/ft2dp-dpa4/multitask-forgetting-20260711/ft2dp-dpa4-air-multitask-replay-lr350e-3-regular-100k.pt
+[recnet_adapter] 重绑定: handlers.adsorption.MODEL, handlers.context.MODEL, handlers.energy.MODEL, handlers.irc.MODEL, handlers.ts.MODEL
+usage: run_dp_ts.py [-h] [--path PATH] [--slab SLAB] [--prepared PREPARED]
+                    [--top-x TOP_X] [--enum-ads] [--enum-ts] [--no-enum-ts]
+                    [--surface-normal SURFACE_NORMAL] [--normal-axis {x,y,z}]
+                    [--bottom-freeze-threshold BOTTOM_FREEZE_THRESHOLD]
+                    [--imag-mode-check] [--no-imag-mode-check]
+                    [--imag-mode-displacement IMAG_MODE_DISPLACEMENT]
+                    [--imag-mode-relax-steps IMAG_MODE_RELAX_STEPS]
+                    [--use-c-vacancy-io] [--vacancy-input VACANCY_INPUT]
+                    [--vacancy-output-dir VACANCY_OUTPUT_DIR]
+                    [--vacancy-element VACANCY_ELEMENT]
+                    [--vacancy-group-index VACANCY_GROUP_INDEX]
+                    [--vacancy-z-min VACANCY_Z_MIN]
+                    [--vacancy-cutoff VACANCY_CUTOFF]
+                    [--vacancy-precision VACANCY_PRECISION]
+                    [--vacancy-marker-symbol VACANCY_MARKER_SYMBOL]
+                    [--vacancy-write-all-members] [--run-irc-final-state]
+                    [--irc-fmax IRC_FMAX] [--irc-steps IRC_STEPS]
+                    [--irc-dx IRC_DX] [--irc-eta IRC_ETA]
+                    [--irc-ninner-iter IRC_NINNER_ITER]
+                    [--irc-thermo-corrections] [--no-irc-thermo-corrections]
+                    [--irc-temperature IRC_TEMPERATURE] [--thermo-corrections]
+                    [--no-thermo-corrections]
+                    [--gas-species-whitelist GAS_SPECIES_WHITELIST]
+                    [--gas-pressure-pa GAS_PRESSURE_PA]
+
+Run DP-only adsorption and TS workflow from prepared RMG data
+
+options:
+  -h, --help            show this help message and exit
+  --path PATH
+  --slab SLAB
+  --prepared PREPARED
+  --top-x TOP_X         Only keep the lowest-energy top X structures per
+                        species
+  --enum-ads            Enable azimuthal rotation enumeration for adsorption
+                        guesses
+  --enum-ts             Enable azimuthal rotation enumeration for TS guesses
+  --no-enum-ts          Disable azimuthal rotation enumeration for TS guesses
+  --surface-normal SURFACE_NORMAL
+                        Surface normal vector, e.g. '0,0,1'
+  --normal-axis {x,y,z}
+                        Optional normal axis for SlabSite; inferred from
+                        surface normal if omitted
+  --bottom-freeze-threshold BOTTOM_FREEZE_THRESHOLD
+                        Freeze atoms with coordinate below this threshold
+                        along normal axis
+  --imag-mode-check     Run +/- imaginary-mode displacement endpoint checks
+                        after TS search
+  --no-imag-mode-check  Disable +/- imaginary-mode displacement endpoint
+                        checks
+  --imag-mode-displacement IMAG_MODE_DISPLACEMENT
+                        Displacement amplitude (Angstrom) for imaginary-mode
+                        endpoint checks
+  --imag-mode-relax-steps IMAG_MODE_RELAX_STEPS
+                        MDMin steps for each imaginary-mode displaced endpoint
+  --use-c-vacancy-io    Generate unique C-vacancy structures and use one or
+                        more as slab input
+  --vacancy-input VACANCY_INPUT
+                        Directly use an existing vacancy structure file as
+                        slab input
+  --vacancy-output-dir VACANCY_OUTPUT_DIR
+                        Output directory for generated vacancy structures
+  --vacancy-element VACANCY_ELEMENT
+                        Element to remove when generating vacancies
+  --vacancy-group-index VACANCY_GROUP_INDEX
+                        Vacancy group indices to run, e.g. 'all', '0', or
+                        '0,2,5'
+  --vacancy-z-min VACANCY_Z_MIN
+                        Optional z_min for surface vacancy screening
+  --vacancy-cutoff VACANCY_CUTOFF
+                        Neighbor cutoff for vacancy environment fingerprint
+  --vacancy-precision VACANCY_PRECISION
+                        Distance rounding precision for vacancy fingerprint
+  --vacancy-marker-symbol VACANCY_MARKER_SYMBOL
+                        Marker symbol for hole site; use 'none' to disable
+  --vacancy-write-all-members
+                        Also write all equivalent vacancy members
+  --run-irc-final-state
+                        Run IRC from generated TS records and search final
+                        states
+  --irc-fmax IRC_FMAX   fmax used in IRC optimization
+  --irc-steps IRC_STEPS
+                        Maximum IRC steps for each direction
+  --irc-dx IRC_DX       IRC step size dx
+  --irc-eta IRC_ETA     IRC eta parameter
+  --irc-ninner-iter IRC_NINNER_ITER
+                        IRC ninner_iter parameter
+  --irc-thermo-corrections
+                        Enable vibration-based ZPE/G corrections in
+                        get_final_state_IRC
+  --no-irc-thermo-corrections
+                        Disable vibration-based ZPE/G corrections in
+                        get_final_state_IRC
+  --irc-temperature IRC_TEMPERATURE
+                        Temperature (K) used for IRC vibration free-energy
+                        corrections
+  --thermo-corrections  Enable thermo corrections (ZPE/G) in final-state
+                        energy evaluation
+  --no-thermo-corrections
+                        Disable thermo corrections and set all correction
+                        terms/sources to 0
+  --gas-species-whitelist GAS_SPECIES_WHITELIST
+                        Optional gas-species whitelist, e.g. 'sp_000,sp_003'.
+                        Use 'auto' to infer from ad_idx=[]
+  --gas-pressure-pa GAS_PRESSURE_PA
+                        Gas pressure (Pa) for ideal-gas free energy
+                        corrections, e.g. 8.3e5 for 0.83 MPa

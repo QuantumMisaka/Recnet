@@ -1,0 +1,22 @@
+[recnet-sai] job=1342005 node=4v100n34.mr-sai.ai partition=4V100
+[recnet-sai] model=/org/pku-jianghong/liuzhaoqing/work/ft2dp-dpeva/v2.2-ft/runs/dpa4_multitask_forgetting_20260711/runs/replay_lr350e-3/models/model.ckpt-100000.pt head=ft2dp
+GPU 0: Tesla V100-SXM2-32GB (UUID: GPU-45fbdcc7-31bc-d237-5766-6ebb8b0e80c3)
+== recnet_adapter check ==
+env        : deepmd-kit 3.2.0b1.dev67+g73de44b1f | torch 2.11.0+cu126 | cuda True
+[recnet_adapter] deepmd.calculator.DP -> head='ft2dp'
+[recnet_adapter] MODEL -> /org/pku-jianghong/liuzhaoqing/work/ft2dp-dpeva/v2.2-ft/runs/dpa4_multitask_forgetting_20260711/runs/replay_lr350e-3/models/model.ckpt-100000.pt
+[recnet_adapter] 重绑定: handlers.adsorption.MODEL, handlers.context.MODEL, handlers.energy.MODEL, handlers.irc.MODEL, handlers.ts.MODEL
+model      : /org/pku-jianghong/liuzhaoqing/work/ft2dp-dpeva/v2.2-ft/runs/dpa4_multitask_forgetting_20260711/runs/replay_lr350e-3/models/model.ckpt-100000.pt
+head       : 'ft2dp'  (patched: True)
+
+structure            pipeline-E    ref(head)-E  |diff|/meV    default-head-E
+----------------------------------------------------------------------------
+CO(gas)               -611.9102      -611.9102       0.000          -16.3130  OK
+H2O(gas)              -481.8820      -481.8820       0.000          -15.2966  OK
+Fe-bcc(2x2x2)       -51526.5419    -51526.5419       0.001         -230.8469  OK
+Fe(110)-slab        -51519.0580    -51519.0580       0.006         -223.8847  OK
+
+HarmonicallyForcedDP : E=-51514.9395  diff vs explicit head=0.003 meV  OK
+timing: 16-atom Fe(110) slab, median 20.2 ms / E+F eval
+
+result: PASS

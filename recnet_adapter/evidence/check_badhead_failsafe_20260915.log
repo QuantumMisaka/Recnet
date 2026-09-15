@@ -1,0 +1,21 @@
+== recnet_adapter check ==
+env        : deepmd-kit 3.2.0b1.dev67+g73de44b1f | torch 2.11.0+cu126 | cuda True
+[recnet_adapter] deepmd.calculator.DP -> head='nope'
+[recnet_adapter] MODEL -> /home/james/work/ft2dp-dpeva/model/ft2dp-dpa4/multitask-forgetting-20260711/ft2dp-dpa4-air-multitask-replay-lr350e-3-regular-100k.pt
+[recnet_adapter] 重绑定: handlers.adsorption.MODEL, handlers.context.MODEL, handlers.energy.MODEL, handlers.irc.MODEL, handlers.ts.MODEL
+model      : /home/james/work/ft2dp-dpeva/model/ft2dp-dpa4/multitask-forgetting-20260711/ft2dp-dpa4-air-multitask-replay-lr350e-3-regular-100k.pt
+head       : 'nope'  (patched: True)
+
+structure            pipeline-E    ref(head)-E  |diff|/meV    default-head-E
+----------------------------------------------------------------------------
+To get the best performance, it is recommended to adjust the number of threads by setting the environment variables OMP_NUM_THREADS, DP_INTRA_OP_PARALLELISM_THREADS, and DP_INTER_OP_PARALLELISM_THREADS. See https://deepmd.rtfd.io/parallelism/ for more information.
+CO(gas)           ERROR: AssertionError: No head or alias named nope in model! Available heads are: ['Default', 'ft2dp'],use `dp --pt show your_model.pt model-branch` to show detail information.
+H2O(gas)          ERROR: AssertionError: No head or alias named nope in model! Available heads are: ['Default', 'ft2dp'],use `dp --pt show your_model.pt model-branch` to show detail information.
+Fe-bcc(2x2x2)     ERROR: AssertionError: No head or alias named nope in model! Available heads are: ['Default', 'ft2dp'],use `dp --pt show your_model.pt model-branch` to show detail information.
+Fe(110)-slab      ERROR: AssertionError: No head or alias named nope in model! Available heads are: ['Default', 'ft2dp'],use `dp --pt show your_model.pt model-branch` to show detail information.
+
+[warn] 未观察到 head 差异：模型可能是单头（正常），也可能 head 注入失效（请人工确认）
+HarmonicallyForcedDP : ERROR: AssertionError: No head or alias named nope in model! Available heads are: ['Default', 'ft2dp'],use `dp --pt show your_model.pt model-branch` to show detail information.
+timing: ERROR: AssertionError: No head or alias named nope in model! Available heads are: ['Default', 'ft2dp'],use `dp --pt show your_model.pt model-branch` to show detail information.
+
+result: FAIL
