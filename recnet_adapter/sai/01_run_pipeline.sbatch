@@ -49,6 +49,7 @@ export PYTHONPATH="$RECNET_DIR:${PYTHONPATH:-}"
 
 cd "$CASE"
 echo "[recnet-sai] job=${SLURM_JOB_ID} node=$(hostname) case=$CASE"
+echo "[recnet-sai] code=$(git -C "$RECNET_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 echo "[recnet-sai] model=$MODEL head=$HEAD"
 nvidia-smi -L || true
 

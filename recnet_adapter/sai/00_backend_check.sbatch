@@ -36,6 +36,7 @@ mkdir -p "$RUN_DIR"
 cd "$RUN_DIR"
 
 echo "[recnet-sai] job=${SLURM_JOB_ID} node=$(hostname) partition=${SLURM_JOB_PARTITION}"
+echo "[recnet-sai] code=$(git -C "$RECNET_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 echo "[recnet-sai] model=$MODEL head=$HEAD"
 nvidia-smi -L || true
 
