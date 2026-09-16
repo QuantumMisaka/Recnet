@@ -79,3 +79,9 @@ python recnet_adapter/run_dp_ts_ft2dp.py --path ./ --prepared ... --slab ...
 见 `sai/README.md`（同步、作业脚本 `00_backend_check.sbatch` / `01_run_pipeline.sbatch`、
 输入目录规范、集群模型清单与 SHA）。要点：单卡 `4V100` + `rush-1o2gpu`/`flood-1o2gpu`，
 只给 `--nodes/--ntasks/--gpus-per-node` 三参数，路径用 `/org/...`（`$R`）口径。
+
+## 相关材料
+
+- `tools/`：case 准备工具 —— `build_slab.py`（任意 Miller 切面 + z 轴对齐 + 冻结阈值建议）、
+  `preflight_case.py`（提交前预检，支持 `--dp-check`）。用法见 `tools/README.md`。
+- `NOTES-ccqn-vs-upstream.md`：师弟版 `ccqn/` 与共享实现（MACE-Relax-Kit / mlip-agent 侧）的逐文件差异记录。
