@@ -89,3 +89,32 @@
   结论：**deepmd-kit 3.2 系列（GA 3.2.0 与 3.2.0b1.dev67）对同一 DPA4 ckpt 的消费数值一致**，
   环境选择不影响管线结果；注意 GA 环境下登录节点 CPU 推理较慢（3 次单点约 4–5 分钟），
   生产上按 env 脚本 + GPU 作业执行即可。
+
+## 7. 环境决策（SAI，2026-09-16）：**不新建 conda env，复用 `dpeva-dpa4`**
+
+**结论**：无需为 Recnet 反应搜索新建环境。直接用
+`source $R/dpeva-git/scripts/env/dpeva-dpa4.env`（dev67 系）；`dpeva-dpa4-320`（GA 3.2.0）作备用第二实现。
+
+**依据**
+
+1. **运行时依赖全覆盖**：Recnet 运行链路（`run_dp_ts.py` → `handlers/*` → `ccqn/*` → `utils/*` → `slabsite`）的
+   第三方依赖仅 `ase / numpy / scipy / pyyaml / deepmd(pt) / sella`（+ torch、vesin）——
+   在 `dpeva-dpa4` 与 `dpeva-dpa4-320` 两个 env 中实测 `import handlers / utils.constraints / ccqn` **全部通过、无缺失**。
+2. **已有冗余，不构成单点**：GA 3.2.0 与 dev67 对同一 ckpt 数值逐位一致（§6），任一 env 都可用。
+3. **与模型生产链一致**：FT2DP 的训练/评测都在 `dpeva-dpa4` 体系完成，推理复用同一 env 可少一个变量（R4 版本矩阵纪律）。
+4. **新建的代价**：多一条要维护的版本线（env 升级/回滚需双份复验）；`conda create --clone` 还要数 GB 磁盘。
+
+**唯一缺口：`rdkit` + `molecule`（RMG）** —— 只被 `prepare_rmg_data.py`（RMG yaml → prepared）与
+`graph_generator.py`（独立工具）使用，**不进管线**。对策按优先级：
+
+| 方案 | 做法 | 适用 |
+|---|---|---|
+| a（推荐） | 数据准备在本地/师弟侧完成，只同步 `prepared_data/` | 常规使用 |
+| b | `pip install --target $R/tools/rmg-deps rdkit rmg-molecule`，用时 `PYTHONPATH=$R/tools/rmg-deps` | 需要在 SAI 常态化生成网络，且不污染共享 env |
+| c | 新建/克隆专用 env | 仅当要与 dpeva env 解耦（见下） |
+
+**何时才真正需要新建 env**：① 要与 dpeva env 生命周期解耦（例如 Recnet 需要跟不同的 deepmd 版本组合）；
+② 要给师弟开独立账号/环境；③ 要在 SAI 上把 RMG 数据准备做成常规流程且不接受 PYTHONPATH 注入。
+
+**遗留提示（代码层，非环境层）**：`utils/constraints.py` 内 `build_constraints()`（含 `from WG.code...` 残留导入）
+**未被任何地方调用**（全链路用的是 `ctx._build_constraints`），属死代码；若被误调用会 ImportError。

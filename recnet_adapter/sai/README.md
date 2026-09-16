@@ -12,8 +12,9 @@ rsync -av --exclude '__pycache__' --exclude '*.pyc' \
   /home/james/work/ft2dp-dpeva/Recnet/ \
   SAI-new:/org/pku-jianghong/liuzhaoqing/work/ft2dp-dpeva/Recnet/
 
-# 代码侧环境依赖已在 SAI `dpeva-dpa4` env 内（deepmd 3.2.0b1.dev67 / torch 2.11+cu126 /
-# ase / sella / networkx / pyyaml / scipy / vesin）；rdkit+molecule 仅 RMG 数据准备步需要。
+# 环境：**复用 SAI `dpeva-dpa4`，无需新建**（deepmd 3.2.0b1.dev67 / torch 2.11+cu126 /
+# ase / sella / pyyaml / scipy / vesin，实测运行链路 import 全通过）；GA 的 `dpeva-dpa4-320` 为备用。
+# rdkit+molecule 只在 RMG 数据准备步需要，不进管线（决策与备选见 ../NOTES-deepmd-compat.md §7）。
 ```
 
 模型（已在集群，无需上传；SHA256 与本地已验证件一致）：
