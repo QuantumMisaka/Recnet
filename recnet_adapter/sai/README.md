@@ -82,6 +82,9 @@ ssh SAI-new 'cd /org/pku-jianghong/liuzhaoqing/work/ft2dp-dpeva/Recnet && git lo
 ## 4. 备注
 
 - 单卡足够：Recnet 是单进程 ASE + `DP` 推理（deepmd pt 单进程单卡）；多卡不加速本流程。
+- **单头导出（可选交付形态）**：`02_freeze_export.sbatch` 用 `dp --pt freeze --head ft2dp` 生成单头 `.pt2`，
+  这样对方 `DP(model=...)` 不带 head 也能用（零代码改动）。注意：导出用 GA 构建（`dpeva-dpa4-320`），
+  AOTInductor 编译需数分钟；导出后在作业内自动做 CO 单点验证（参考值 −611.9102 eV）。
 - `prepare_rmg_data.py`（RMG yaml → prepared）需要 `rdkit` + `molecule`：
   建议在本地/师弟侧生成后随 case 同步，或在 SAI 侧 `pip install rdkit rmg-molecule`（需先确认镜像源）。
 - 每个进程入口都需经过 `recnet_adapter.install()`（用 `python -m recnet_adapter` 或

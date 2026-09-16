@@ -71,7 +71,10 @@
 ## 5. 未验证 / 待办
 
 - ~~GA `3.2.0` 与 dev67 的逐数值一致性~~ → **已完成**（2026-09-16，见 §6）。
-- `dp --pt freeze --head ft2dp` 在 **P7 新 ckpt + 同版本环境**下是否可用（单头导出备选路径）。
+- `dp --pt freeze --head ft2dp` 单头导出：**初测可行**（2026-09-16，GA 3.2.0 env；AOTInductor 编译需数分钟，
+  产物 ~28 MB .pt2）。完整「导出 + 加载复现」验证已固化为作业脚本 `sai/02_freeze_export.sbatch`
+  并在 GPU 作业 `1348758` 上执行（结果回填本节下方）；dev67 构建对 2026-07 旧 ckpt **快速失败**
+  （严格 state_dict），故导出固定用 GA env（脚本默认 `dpeva-dpa4-320`）。P7 新 ckpt 到位后需再跑一次。
 - 若要消费 **DPA4C / OpenLAM 压缩版**（P2-B 的 pt-expt / eval-desc 限制），需单独评估（当前路径不涉及）。
 
 ## 6. 记录（追加）
