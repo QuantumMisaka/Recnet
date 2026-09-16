@@ -118,3 +118,32 @@
 
 **遗留提示（代码层，非环境层）**：`utils/constraints.py` 内 `build_constraints()`（含 `from WG.code...` 残留导入）
 **未被任何地方调用**（全链路用的是 `ctx._build_constraints`），属死代码；若被误调用会 ImportError。
+
+## 8. `dpeva-dpa4-320` 是否需要更新（2026-09-16 核对）
+
+**结论：不需要更新；不建议对其做版本升级。** 现状核对：
+
+| 项 | 现状 | 判断 |
+|---|---|---|
+| deepmd-kit | **3.2.0**（GA） | PyPI 最新稳定版即 3.2.0（全部发布谱：…3.1.3 / 3.2.0b0 / **3.2.0**）→ **已是最新** |
+| 与 dev67 env 的差异 | 两边各 174 包；**除 deepmd 版本外逐项一致**（torch / ase / sella / vesin / numpy / scipy / pyyaml / dpdata 同版本；`dpeva` 两者都是指向 `$R/dpeva-git/src` 的同一 editable 源码树） | 双 env = 同环境两个 deepmd 构建，设计如此 |
+| 相对 PyPI 的落后项 | torch 2.11→2.14、ase 3.28→3.29、sella 2.4.2→2.6.0、vesin 0.5.8→0.6.1、dpdata 1.0.2→1.1.0 | **不建议升**，理由见下 |
+| 环境健康 | `dp` shebang 指向 env 自身 python（无迁移残留）；`dpdata 1.0.2` 解析到 env 内（无 `~/.local` 泄漏）；Recnet 运行链路 import 全通过 | 健康 |
+
+**不建议升级的理由**
+
+1. **torch 是 cu126 绑定**：env 脚本 `module load cuda/12.6.3` 与之配套；升到 2.14 需要换 CUDA wheel（12.8/12.9），
+   会同时改动 env 脚本与 GPU 侧一致性，收益低、回归面大。
+2. **vesin 是 DPA4/SEZM 的内建邻居表**：0.6.x 若改变近邻构建行为会直接改能量数值——
+   现在「dev67 与 GA 3.2.0 逐位一致」是很有价值的锚点，不该轻易打破。
+3. **任何升级都会使现有数值证据失效**，必须重新跑一致性校验（Recnet `check` + FT2DP 评测抽样）才谈得上可信。
+4. deepmd 本身已是最新 GA，没有"追新"的空间。
+
+**若确实要更新（例如为某新特性），正确姿势**
+
+1. 目标先写清楚（追新 or 修问题）；目前唯一有实际收益的"增量"是给 env 补 `rdkit`+`molecule`（若要在 SAI 做 RMG 数据准备，见 §7，默认不做）。
+2. **在克隆 env 里做**：`conda create --clone dpeva-dpa4-320 -n dpeva-dpa4-320-new`，原 env 保持冻结。
+3. 升级后复验（通过才算数）：
+   - `sbatch 00_backend_check.sbatch`（期望与现锚一致：CO −611.9102 eV / Fe₈ −51526.5419 eV / Default −16.313 eV）；
+   - 若动了 deepmd/torch/vesin：再跑 FT2DP 侧一个评测抽样（MatPES zero-bias 或 cum 子集）；
+   - 通过后把 env 脚本的 `DPEVA_DPA4_ENV_NAME` 切换，并记录 env-lock 与本次 SHA。
