@@ -54,7 +54,31 @@ RECNET_EXTRA_ARGS="--use-c-vacancy-io --gas-species-whitelist sp_002" \
 
 输出：`<case>/rxn/{Adsorbates,TS_guesses,FS_energy,...}` + `slurm-recnet-rxn-<jobid>.{out,err}`。
 
-## 3. 备注
+## 3. 代码同步流程（本地 → fork → SAI）
+
+适配代码的规范位置 = `QuantumMisaka/Recnet` 的 `feat/ft2dp-dpa4-adapter` 分支
+（`origin`=你的 fork 可推送；`upstream`=师弟仓库，只读）。
+
+```bash
+# ① 本地：跟随上游最新（有冲突解决后再继续）
+git -C ~/work/ft2dp-dpeva/Recnet fetch upstream --prune
+git -C ~/work/ft2dp-dpeva/Recnet rebase upstream/main
+
+# ② 本地：提交并推送分支到 fork
+git -C ~/work/ft2dp-dpeva/Recnet push origin feat/ft2dp-dpa4-adapter
+
+# ③ 同步到 SAI（含 .git，作业日志会打印部署 commit）
+rsync -av --exclude '__pycache__' --exclude '*.pyc' \
+  ~/work/ft2dp-dpeva/Recnet/ \
+  SAI-new:/org/pku-jianghong/liuzhaoqing/work/ft2dp-dpeva/Recnet/
+
+# ④ 三端核对（应一致）
+ssh SAI-new 'cd /org/pku-jianghong/liuzhaoqing/work/ft2dp-dpeva/Recnet && git log --oneline -1'
+```
+
+约定：作业产物（`slurm-*.out/.err`、计算输出）留在 `$R/recnet-runs/<case>/`，不落代码目录。
+
+## 4. 备注
 
 - 单卡足够：Recnet 是单进程 ASE + `DP` 推理（deepmd pt 单进程单卡）；多卡不加速本流程。
 - `prepare_rmg_data.py`（RMG yaml → prepared）需要 `rdkit` + `molecule`：

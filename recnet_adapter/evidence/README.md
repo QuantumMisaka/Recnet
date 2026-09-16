@@ -14,6 +14,6 @@
 | `check_singlehead_20260915.log` | `RECNET_DP_HEAD=none RECNET_DP_MODEL=../model/ft2dp-dpa4/ft2dp-dpa4-air-regular-50k.pt python -m recnet_adapter check --repeats 2` | **PASS**，退出码 0（单头路径，不注入 head） |
 | `check_badhead_failsafe_20260915.log` | `... python -m recnet_adapter check --head nope` | **FAIL**，退出码 1；报错列出可用头 `['Default', 'ft2dp']`（无静默回退） |
 | `wrapper_entry_help_20260915.log` | `python recnet_adapter/run_dp_ts_ft2dp.py --help` | 映射先安装（head=ft2dp + MODEL 重绑定 5 处），随后进入 `run_dp_ts.py`，退出码 0 |
-| `sai_gpu_check_20260916.log` | SAI 作业 `1342005`（4V100 / 节点 4v100n34 / `rush-1o2gpu`）：`python -m recnet_adapter check --repeats 5` | **PASS**（1:47 完成，cuda True）：能量与本地逐位一致（≤0.006 meV）；`Default` 头差 ~5×10⁴ eV；16 原子 Fe(110) **20.2 ms**/E+F（V100，约本地 RTX 2070S 的 5×） |
+| `sai_gpu_check_20260916.log`（stderr 见同名 `.err.log`，仅含 checkpoint 兼容性警告） | SAI 作业 `1342005`（4V100 / 节点 4v100n34 / `rush-1o2gpu`）：`python -m recnet_adapter check --repeats 5` | **PASS**（1:47 完成，cuda True）：能量与本地逐位一致（≤0.006 meV）；`Default` 头差 ~5×10⁴ eV；16 原子 Fe(110) **20.2 ms**/E+F（V100，约本地 RTX 2070S 的 5×） |
 
 复现：重跑上述任一命令即可；`check` 退出码 `0`=PASS / `1`=FAIL / `2`=配置错误 / `3`=运行时错误。
