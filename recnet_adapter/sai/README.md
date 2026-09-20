@@ -82,6 +82,9 @@ ssh SAI-new 'cd /org/pku-jianghong/liuzhaoqing/work/ft2dp-dpeva/Recnet && git lo
 ## 4. 备注
 
 - 单卡足够：Recnet 是单进程 ASE + `DP` 推理（deepmd pt 单进程单卡）；多卡不加速本流程。
+- **必须设置 `PYTHONNOUSERSITE=1`**：SAI 用户 site 里的 Sella 2.3.5 + JAX 0.9 会在 NumPy 1.26 上
+  使 Sella 初始化失败；conda env 内是 Sella 2.4.2 + JAX 0.10 + NumPy 2.x。`00/01` 脚本已强制，
+  `python -m recnet_adapter check` 也会做 Sella 初始化检查。
 - **单头导出（可选交付形态）**：`02_freeze_export.sbatch` 用 `dp --pt freeze --head ft2dp` 生成单头 `.pt2`，
   这样对方 `DP(model=...)` 不带 head 也能用（零代码改动）。注意：导出用 GA 构建（`dpeva-dpa4-320`），
   AOTInductor 编译需数分钟；导出后在作业内自动做 CO 单点验证（参考值 −611.9102 eV）。

@@ -43,6 +43,23 @@ fi
 
 source "$R/dpeva-git/scripts/env/dpeva-dpa4.env"
 
+# TS/CCQN 依赖 conda env 内的 Sella/JAX/NumPy；用户 site 旧包会导致
+# Sella 初始化失败（np.asarray copy keyword/JAX 兼容性错误）。
+export PYTHONNOUSERSITE=1
+python - <<'PY'
+import importlib.metadata as metadata
+import jax
+import numpy
+import sella
+
+try:
+    sella_version = metadata.version("Sella")
+except Exception:
+    sella_version = getattr(sella, "__version__", "?")
+print(f"[recnet-sai] runtime: sella={sella_version} ({sella.__file__}) "
+      f"jax={jax.__version__} numpy={numpy.__version__}")
+PY
+
 export RECNET_DP_MODEL="$MODEL"
 export RECNET_DP_HEAD="$HEAD"
 export PYTHONPATH="$RECNET_DIR:${PYTHONPATH:-}"

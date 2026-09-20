@@ -27,6 +27,23 @@ fi
 # SAI DPA4 环境（CUDA 12.6.3 + deepmd-kit dev67 + torch cu126；见 $R/dpeva-git/scripts/env/）
 source "$R/dpeva-git/scripts/env/dpeva-dpa4.env"
 
+# Recnet 的 Sella/CCQN 路径必须用 conda env 内的 Sella/JAX/NumPy；
+# 用户 site-packages 中旧 Sella + 新 JAX + 旧 NumPy 会在 TS 初始化时失败。
+export PYTHONNOUSERSITE=1
+python - <<'PY'
+import importlib.metadata as metadata
+import jax
+import numpy
+import sella
+
+try:
+    sella_version = metadata.version("Sella")
+except Exception:
+    sella_version = getattr(sella, "__version__", "?")
+print(f"[recnet-sai] runtime: sella={sella_version} ({sella.__file__}) "
+      f"jax={jax.__version__} numpy={numpy.__version__}")
+PY
+
 export RECNET_DP_MODEL="$MODEL"
 export RECNET_DP_HEAD="$HEAD"
 export PYTHONPATH="$RECNET_DIR:${PYTHONPATH:-}"

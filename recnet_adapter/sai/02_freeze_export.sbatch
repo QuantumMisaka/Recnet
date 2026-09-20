@@ -26,6 +26,7 @@ OUT="${OUT_DIR}/frozen_${TAG}_${HEAD}.pt2"
 
 export DPEVA_DPA4_ENV_NAME="${DPEVA_DPA4_ENV_NAME:-dpeva-dpa4-320}"
 source "$R/dpeva-git/scripts/env/dpeva-dpa4.env"
+export PYTHONNOUSERSITE=1
 
 mkdir -p "$OUT_DIR"
 cd "$OUT_DIR"

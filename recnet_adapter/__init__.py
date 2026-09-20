@@ -390,6 +390,30 @@ def _test_structures() -> dict:
     return structures
 
 
+def _check_sella_runtime() -> tuple[bool, str]:
+    """Sella 初始化检查；用于提前暴露 user-site/JAX/NumPy 版本冲突。"""
+    try:
+        import importlib.metadata as metadata
+
+        import sella
+        from ase.build import molecule
+
+        atoms = molecule("H2O")
+        atoms.center(vacuum=5.0)
+        opt = sella.Sella(atoms, order=1, delta0=0.1)
+        version = getattr(sella, "__version__", None)
+        if version is None:
+            try:
+                version = metadata.version("Sella")
+            except Exception:  # noqa: BLE001
+                version = "?"
+        detail = f"Sella {version} | {sella.__file__}"
+        del opt
+        return True, detail
+    except Exception as exc:  # noqa: BLE001
+        return False, f"{exc.__class__.__name__}: {exc}"
+
+
 def check_backend(model: Any = None, head: Any = None, *, repeats: int = 3) -> bool:
     """端到端校验映射：管线调用式 vs 显式 head 参考、包装器、时延。
 
@@ -464,6 +488,11 @@ def check_backend(model: Any = None, head: Any = None, *, repeats: int = 3) -> b
     print("")
     if res.head and not head_effect_seen and not had_error:
         print("[warn] 未观察到 head 差异：模型可能是单头（正常），也可能 head 注入失效（请人工确认）")
+
+    # --- Sella 运行时（Recnet TS/CCQN 必经路径；backend check 不能只测 E/F）---
+    sella_ok, sella_detail = _check_sella_runtime()
+    print(f"Sella init          : {sella_detail}  {'OK' if sella_ok else 'FAIL'}")
+    all_ok &= sella_ok
 
     # --- Recnet 自带包装器 HarmonicallyForcedDP（表面积点位点约束路径）---
     slab = structures["Fe(110)-slab"]
