@@ -1,9 +1,18 @@
 *.sh
 *_old.py
 
+# 例外：交付链脚本随项目走 fork（上游 *.sh 规则之外的显式白名单；
+# 该脚本是每一波并表/门/报告的关键路径，必须随代码版本化）
+!recnet_adapter/tools/finalize_network.sh
+
 __pycache__/
 *.pyc
 
 # 项目数据（Fe5C2 反应网络输入/中间产物；由 network_builder + RMG 数据可重建，
 # 不入代码仓；正本在 $R/Recnet/network_inputs 与本机工作树）
 network_inputs/
+
+# 运行产物（集群侧）
+recnet_adapter/sai/slurm-*.out
+recnet_adapter/sai/slurm-*.err
+recnet_adapter/tools/*.bak-*
