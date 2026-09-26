@@ -182,7 +182,13 @@ def main(argv=None) -> int:
                         help="只计入 wave-3 的某一档（规则同 prepare_wave3）："
                              "b1=ready>=5、b2=ready>=4、d=化学族筛选（已交付档）、c=全 30")
     parser.add_argument("--expansion5", action="store_true",
-                        help="种子表再加断键残差物种（network_builder/expansion5.py，CO2 气相；R224/R225）")
+                         help="种子表再加断键残差物种（network_builder/expansion5.py，CO2 气相；R224/R225）")
+    parser.add_argument("--expansion6", action="store_true",
+                         help="种子表再加 C3 扩网物种（network_builder/expansion6.py；R309）——"
+                              "用来审计『C3 wave-1 之后还缺什么』")
+    parser.add_argument("--expansion6-tier", default="closed-shell",
+                         choices=("closed-shell", "o1", "ready2", "all"),
+                         help="expansion6 的物种档（默认 closed-shell）")
     args = parser.parse_args(argv)
 
     if args.wave3_option:
@@ -214,7 +220,9 @@ def main(argv=None) -> int:
 
     table = build_species_table(expansion=args.expansion, expansion2=args.expansion2,
                                 expansion3=args.expansion3, expansion4=args.expansion4,
-                                expansion5=args.expansion5)
+                                expansion5=args.expansion5,
+                                expansion6=args.expansion6,
+                                expansion6_tier=args.expansion6_tier)
     by_identity: Dict[str, object] = {}
     for species in table:
         by_identity.setdefault(species.identity, species)

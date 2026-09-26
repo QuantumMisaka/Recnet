@@ -387,6 +387,8 @@ def build_dataset(
     expansion3: bool = False,
     expansion4: bool = False,
     expansion5: bool = False,
+    expansion6: bool = False,
+    expansion6_tier: str = "closed-shell",
 ) -> Dict[str, object]:
     """Write templates, prepared yaml and MANIFEST.json. Returns the manifest."""
     out_dir = Path(out_dir).resolve()
@@ -395,7 +397,8 @@ def build_dataset(
 
     species_list = build_species_table(seed=seed, expansion=expansion, expansion2=expansion2,
                                        expansion3=expansion3, expansion4=expansion4,
-                                       expansion5=expansion5)
+                                       expansion5=expansion5, expansion6=expansion6,
+                                       expansion6_tier=expansion6_tier)
     by_key = {species.key: species for species in species_list}
     sp_ids = {species.key: f"sp_{index:03d}" for index, species in enumerate(species_list)}
 

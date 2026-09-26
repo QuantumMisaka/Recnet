@@ -358,13 +358,20 @@ def _materialise(spec: SpeciesSpec, seed: int) -> Species:
 
 def build_species_table(seed: int = SEED, expansion: bool = False,
                         expansion2: bool = False, expansion3: bool = False,
-                        expansion4: bool = False, expansion5: bool = False) -> List[Species]:
+                        expansion4: bool = False, expansion5: bool = False,
+                        expansion6: bool = False,
+                        expansion6_tier: str = "closed-shell") -> List[Species]:
     """Materialise every declared species in declaration order.
 
     ``expansion=True`` appends the closure-round-1 species table
     (:mod:`network_builder.expansion`) **after** the frozen 29 entries, so
     ``sp_xxx`` ids of the frozen table do not move. Default ``False`` keeps the
     frozen dataset byte-identical.
+
+    ``expansion6=True`` appends the C3 closure gaps (:mod:`network_builder.expansion6`,
+    2026-09-26 R309) — again **after** everything else, and gated by
+    ``expansion6_tier`` (default ``"closed-shell"``, the chemically clean tier;
+    ``"all"`` includes doubly-dangling species that still need chemical review).
     """
     specs = tuple(SPECS)
     if expansion or expansion2 or expansion3 or expansion4:
@@ -392,6 +399,12 @@ def build_species_table(seed: int = SEED, expansion: bool = False,
         from .expansion5 import EXPANSION5_SPECS
 
         specs = specs + tuple(EXPANSION5_SPECS)
+    if expansion6:
+        # 2026-09-26 (R309): C3 扩网 wave-1 —— 由 closure_audit --max-c 3 机械给出的 C3 缺口，
+        # 按档取子集（默认 closed-shell；all 档含双悬挂价物种，需化学评审）。
+        from .expansion6 import specs_for_tier
+
+        specs = specs + tuple(specs_for_tier(expansion6_tier))
     return [_materialise(spec, seed) for spec in specs]
 
 

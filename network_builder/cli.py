@@ -134,6 +134,15 @@ def main(argv=None) -> int:
                         help="additionally append the scission-residue species "
                              "(network_builder/expansion5.py: CO2 gas — the clean closed-shell "
                              "fragment of the 76 dropped cuts; R224/R225)")
+    parser.add_argument("--expansion6", action="store_true",
+                        help="additionally append the C3 closure gaps "
+                             "(network_builder/expansion6.py: the C3 species missing from the "
+                             "mechanical closure; generated from closure_audit --max-c 3, R309). "
+                             "Default tier = closed-shell; use --expansion6-tier to widen")
+    parser.add_argument("--expansion6-tier", default="closed-shell",
+                        choices=("closed-shell", "o1", "ready2", "all"),
+                        help="expansion6 的物种档：closed-shell(默认,45) / o1(85) / ready2(136) / "
+                             "all(241，含双悬挂价物种，需化学评审)")
     args = parser.parse_args(argv)
 
     manifest = build_dataset(
@@ -146,6 +155,8 @@ def main(argv=None) -> int:
         expansion3=args.expansion3,
         expansion4=args.expansion4,
         expansion5=args.expansion5,
+        expansion6=args.expansion6,
+        expansion6_tier=args.expansion6_tier,
     )
 
     counts = manifest["counts"]
