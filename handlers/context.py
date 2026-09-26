@@ -21,6 +21,105 @@ from utils import geometry as geom
 MODEL = "/data/home/youyinglong/model/dpa230-v2-simp/FeCHO-dpa231-v2-7-3heads-100w.pth"
 
 
+# ----------------------------------------------------------------------
+#  稳定 key / seed 校验（模块级纯函数；管线与离线工具共用同一口径）
+# ----------------------------------------------------------------------
+
+def stable_digest(payload, n=12):
+    """把 payload 序列化成稳定 md5 短摘要（键排序 + ASCII 化）。"""
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()[:n]
+
+
+def slugify_token(text, fallback="item"):
+    """把任意文本规整成小写下划线 token（空则用 fallback）。"""
+    token = "".join(ch.lower() if str(ch).isalnum() else "_" for ch in str(text))
+    while "__" in token:
+        token = token.replace("__", "_")
+    token = token.strip("_")
+    return token or fallback
+
+
+def compute_species_key(template):
+    """由吸附模板（atoms/ad_idx/name）计算物种稳定 key。
+
+    与 ``WorkflowContext._species_key`` 同口径：工具脚本可在不建 SlabSite、
+    不加载 DP 的情况下复用它来复现管线的目录命名。
+    """
+    atoms = template["atoms"]
+    ad_idx = sorted(int(i) for i in template.get("ad_idx", []))
+
+    symbol_counts = {}
+    for symbol in atoms.get_chemical_symbols():
+        symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
+
+    bonds = []
+    for i, j in geom.get_bond_connections(atoms, shift=0, cutoff=1.2, bond_type="nosurf"):
+        a, b = int(i), int(j)
+        if a > b:
+            a, b = b, a
+        bonds.append([a, b])
+    bonds.sort()
+
+    payload = {
+        "name": str(template.get("name", "")).strip().lower(),
+        "formula": atoms.get_chemical_formula(mode="hill"),
+        "atom_count": int(len(atoms)),
+        "ad_idx": ad_idx,
+        "symbol_counts": [[k, symbol_counts[k]] for k in sorted(symbol_counts)],
+        "bonds": bonds,
+    }
+    digest = stable_digest(payload)
+    slug = slugify_token(template.get("name", ""), fallback="species")
+    return f"{slug}_{digest}"
+
+
+def compute_reaction_key(rxn, species_key_by_id):
+    """由反应记录计算反应稳定 key（与 ``WorkflowContext._reaction_key`` 同口径）。"""
+    def _counted_keys(sp_ids):
+        counts = {}
+        for sid in sp_ids:
+            key = species_key_by_id.get(sid, str(sid))
+            counts[key] = counts.get(key, 0) + 1
+        return [[k, counts[k]] for k in sorted(counts)]
+
+    broken_bond = rxn.get("broken_bond", [])
+    bb = []
+    if isinstance(broken_bond, (list, tuple)) and len(broken_bond) >= 2:
+        a, b = int(broken_bond[0]), int(broken_bond[1])
+        bb = [a, b] if a <= b else [b, a]
+
+    payload = {
+        "reactants": _counted_keys(rxn.get("reactant_species", [])),
+        "products": _counted_keys(rxn.get("product_species", [])),
+        "broken_bond": bb,
+    }
+    return f"rxn_{stable_digest(payload)}"
+
+
+def ts_seed_structure_error(seed_atoms, reference_atoms):
+    """校验 seed 与组装结构是否一致（原子数 + 元素序列）。
+
+    返回 ``None`` 表示通过，否则返回原因字符串（供调用方打印并回退默认 guess）。
+    """
+    if len(seed_atoms) != len(reference_atoms):
+        return (
+            f"atom_count_mismatch(seed={len(seed_atoms)}, "
+            f"assembly={len(reference_atoms)})"
+        )
+    seed_symbols = list(seed_atoms.get_chemical_symbols())
+    ref_symbols = list(reference_atoms.get_chemical_symbols())
+    if seed_symbols != ref_symbols:
+        first = next(
+            i for i, (a, b) in enumerate(zip(seed_symbols, ref_symbols)) if a != b
+        )
+        return (
+            f"symbol_mismatch(first_diff_index={first}, "
+            f"seed={seed_symbols[first]}, assembly={ref_symbols[first]})"
+        )
+    return None
+
+
 class WorkflowContext:
     """Holds all configuration, loaded data, and shared helper methods."""
 
@@ -34,6 +133,7 @@ class WorkflowContext:
         top_x=None,
         enable_rotation_enum_ads=False,
         enable_rotation_enum_ts=True,
+        enable_ts_seed=True,
         enable_imag_mode_check=True,
         imag_mode_displacement=0.15,
         imag_mode_relax_steps=40,
@@ -60,6 +160,8 @@ class WorkflowContext:
         self.top_x = top_x
         self.enable_rotation_enum_ads = bool(enable_rotation_enum_ads)
         self.enable_rotation_enum_ts = bool(enable_rotation_enum_ts)
+        # per-site TS seed 覆写开关：默认启用（发现 <case>/rxn/seeds/ 下的 seed 文件即用）
+        self.enable_ts_seed = bool(enable_ts_seed)
         self.rotation_angle_candidates = [0, 90, 180, 270]
         self.surface_normal = tuple(surface_normal)
         self.adsorbate_lift = 0.8
@@ -172,6 +274,9 @@ class WorkflowContext:
         # ---- Valid sites (populated after adsorption stage) ----
         self.valid_sites = {}
         self.valid_sites_all = {}
+        # 2026-09-21: adsorption-rejected ("dissociated during relaxation") sites,
+        # offered to the TS stage as backup candidates (see handlers/adsorption.py).
+        self.dissociated_sites = {}
 
     # ------------------------------------------------------------------
     #  Helper methods — shared across multiple stages
@@ -183,65 +288,60 @@ class WorkflowContext:
         return stem
 
     def _slugify_token(self, text, fallback="item"):
-        token = "".join(ch.lower() if str(ch).isalnum() else "_" for ch in str(text))
-        while "__" in token:
-            token = token.replace("__", "_")
-        token = token.strip("_")
-        return token or fallback
+        return slugify_token(text, fallback=fallback)
 
     def _stable_digest(self, payload, n=12):
-        raw = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-        return hashlib.md5(raw.encode("utf-8")).hexdigest()[:n]
+        return stable_digest(payload, n=n)
 
     def _species_key(self, sp_id):
-        template = self.ads_templates[sp_id]
-        atoms = template["atoms"]
-        ad_idx = sorted(int(i) for i in template.get("ad_idx", []))
-
-        symbol_counts = {}
-        for symbol in atoms.get_chemical_symbols():
-            symbol_counts[symbol] = symbol_counts.get(symbol, 0) + 1
-
-        bonds = []
-        for i, j in geom.get_bond_connections(atoms, shift=0, cutoff=1.2, bond_type="nosurf"):
-            a, b = int(i), int(j)
-            if a > b:
-                a, b = b, a
-            bonds.append([a, b])
-        bonds.sort()
-
-        payload = {
-            "name": str(template.get("name", "")).strip().lower(),
-            "formula": atoms.get_chemical_formula(mode="hill"),
-            "atom_count": int(len(atoms)),
-            "ad_idx": ad_idx,
-            "symbol_counts": [[k, symbol_counts[k]] for k in sorted(symbol_counts)],
-            "bonds": bonds,
-        }
-        digest = self._stable_digest(payload)
-        slug = self._slugify_token(template.get("name", sp_id), fallback="species")
-        return f"{slug}_{digest}"
+        return compute_species_key(self.ads_templates[sp_id])
 
     def _reaction_key(self, rxn):
-        def _counted_keys(sp_ids):
-            counts = {}
-            for sid in sp_ids:
-                key = self.species_key_by_id.get(sid, str(sid))
-                counts[key] = counts.get(key, 0) + 1
-            return [[k, counts[k]] for k in sorted(counts)]
+        return compute_reaction_key(rxn, self.species_key_by_id)
 
-        broken_bond = rxn.get("broken_bond", [])
-        bb = []
-        if isinstance(broken_bond, (list, tuple)) and len(broken_bond) >= 2:
-            a, b = int(broken_bond[0]), int(broken_bond[1])
-            bb = [a, b] if a <= b else [b, a]
+    # ------------------------------------------------------------------
+    #  per-site TS seed 覆写（可选；默认启用）
+    # ------------------------------------------------------------------
 
-        payload = {
-            "reactants": _counted_keys(rxn.get("reactant_species", [])),
-            "products": _counted_keys(rxn.get("product_species", [])),
-            "broken_bond": bb,
-        }
-        return f"rxn_{self._stable_digest(payload)}"
+    def _ts_seed_paths(self, rxn_key, site):
+        """按优先级返回候选 seed 路径（带 vg 后缀者优先，其次无后缀者）。
+
+        文件名口径与 TS 产物保持一致（``_tagged_stem``）：
+        ``<rxn_key>_site_<site>_vg<k>.xyz`` → ``<rxn_key>_site_<site>.xyz``。
+        """
+        seeds_dir = os.path.join(self.path, "rxn", "seeds")
+        tagged = self._tagged_stem(f"{rxn_key}_site_{site}")
+        plain = f"{rxn_key}_site_{site}"
+        names = [f"{tagged}.xyz"]
+        if tagged != plain:
+            names.append(f"{plain}.xyz")
+        return [os.path.join(seeds_dir, name) for name in names]
+
+    def load_ts_seed(self, rxn_key, site, assembly_reference):
+        """加载 per-site TS seed 覆写结构（命中即作为初始 TS guess）。
+
+        返回 ``(atoms, seed_path, reason)``：
+
+        * ``(Atoms, path, None)``  —— 命中且校验通过；
+        * ``(None, path, reason)`` —— 命中但不可用（读失败/原子数或元素不符），调用方应回退默认 guess；
+        * ``(None, None, None)``   —— 未启用或未命中任何候选路径。
+
+        ``assembly_reference`` 为 slab+adsorbate 的组装结构（只用于原子数/元素序列校验）。
+        """
+        if not self.enable_ts_seed:
+            return None, None, None
+        for seed_path in self._ts_seed_paths(rxn_key, site):
+            if not os.path.exists(seed_path):
+                continue
+            try:
+                seed_atoms = read(seed_path)
+            except Exception as exc:
+                return None, seed_path, f"read_failed: {exc.__class__.__name__}: {exc}"
+            reason = ts_seed_structure_error(seed_atoms, assembly_reference)
+            if reason:
+                return None, seed_path, reason
+            return seed_atoms, seed_path, None
+        return None, None, None
 
     def _adsorbate_dir_candidates(self, sp_id):
         candidates = []
