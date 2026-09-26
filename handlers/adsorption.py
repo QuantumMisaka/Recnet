@@ -27,6 +27,13 @@ class AdsorptionHandler:
 
         ctx.valid_sites = {}
         ctx.valid_sites_all = {}
+        # 2026-09-21: sites where the adsorbate dissociates during the adsorption
+        # relaxation are rejected from the *adsorption* ranking (their energy is not
+        # comparable), but for a TS search of a bond-scission reaction they are the
+        # most relevant candidates (e.g. H2(g) -> 2H*: H2 dissociates at 9/10 sites
+        # and only one site survived, which starved the TS search).  Keep them here
+        # and offer them to the TS stage as *backup* sites.
+        ctx.dissociated_sites = {}
 
         def _opt(path, prefix, site_bond_params_list, atom_bond_params_list=None,
                  surf_atom_num=0, constraints_in=None, center_bond_params_list=None):
@@ -108,6 +115,8 @@ class AdsorptionHandler:
                         intact, reason = ctx._is_adsorbate_structure_intact(opt_xyz, sp_id)
                         if not intact:
                             print(f"Reject site {site} for {sp_id}: dissociated adsorbate after opt ({reason})")
+                            # keep it as a TS-search candidate (see the note at the top)
+                            ctx.dissociated_sites.setdefault(sp_id, []).append(site)
                             e_site = None
                         else:
                             opt_atoms = read(opt_xyz)
@@ -135,7 +144,14 @@ class AdsorptionHandler:
             rxn["valid_product_sites"] = []
             for sp_id in rxn["reactant_species"]:
                 rxn["valid_reactant_sites"] = ctx.valid_sites.get(sp_id, slab.unique_sites["idx"])
-                rxn["valid_reactant_sites_all"] = ctx.valid_sites_all.get(sp_id, slab.unique_sites["idx"])
+                # 2026-09-21: append the "dissociated during adsorption" sites as
+                # backups (dedup, order preserved) so a scission TS search is not
+                # starved when the reactant dissociates at most sites.
+                base_sites = list(ctx.valid_sites_all.get(sp_id, slab.unique_sites["idx"]))
+                for site in ctx.dissociated_sites.get(sp_id, []):
+                    if site not in base_sites:
+                        base_sites.append(site)
+                rxn["valid_reactant_sites_all"] = base_sites
             for sp_id in rxn["product_species"]:
                 rxn["valid_product_sites"] = ctx.valid_sites.get(sp_id, slab.unique_sites["idx"])
 
@@ -279,4 +295,3 @@ class AdsorptionHandler:
         if height is None:
             return False, None
         return bool(height <= float(max_height)), float(height)
-
