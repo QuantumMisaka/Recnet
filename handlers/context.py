@@ -202,7 +202,14 @@ class WorkflowContext:
 
         # ---- TS mode QC ----
         self.imag_freq_significant_cutoff = 20.0
-        self.ts_primary_mode_min_bond_proj = 0.16
+        # 2026-09-27 (R338): 该阈值原本硬编码 0.16；(510) 的 C3 探针实测表明 0.199/0.248 这类
+        # "bond_proj 略高于 0.16、但最低虚频实际沿板内 C 或 C–H"的 TS 会被接受（见 R326/R336）。
+        # 现改为可经环境变量覆盖（**默认仍 0.16，行为不变**）：如需更严的键特征门，设
+        #   RECNET_TS_MIN_BOND_PROJ=0.30
+        # 后重跑相关通道；该值随产物记入日志（ts.py 会把判定过程写进 optimization_summary.log）。
+        self.ts_primary_mode_min_bond_proj = float(
+            os.environ.get("RECNET_TS_MIN_BOND_PROJ", "0.16")
+        )
         self.ts_primary_mode_bond_margin = 0.02
 
         # ---- Output suffix & freeze threshold ----
