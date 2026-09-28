@@ -52,6 +52,10 @@ if [ ! -f "$CASES" ]; then
     echo "[recnet-farm] ERROR: 清单不存在: $CASES" >&2
     exit 3
 fi
+
+# R541：wrapper 稍后 `cd "$RUN_DIR"`（run_dir 内启动），相对路径清单会解析错位
+# （曾致 1530085 在依赖解锁后 10 秒 exit 2）⇒ 先把清单规范化成绝对路径，工位无关。
+CASES="$(readlink -f "$CASES")"
 if [ ! -f "$FARM_RUNNER" ]; then
     echo "[recnet-farm] ERROR: farm_runner.py 不存在: $FARM_RUNNER" >&2
     exit 3
