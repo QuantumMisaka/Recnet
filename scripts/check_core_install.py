@@ -2,13 +2,14 @@
 
 Builds the wheel from this worktree, asserts core members and absence of
 fork-only payloads, then probes wheel and editable installs in throwaway
-venvs. The invoking interpreter must provide the core/pipeline dependencies
-(ase, numpy, scipy, PyYAML, sella, deepmd) via ``--system-site-packages``;
-this validates packaging, not a fresh dependency resolution from an index.
+venvs. Dependency directories come from the selected interpreter, without
+executing parent editable hooks. This checks installed package behavior, not
+fresh dependency resolution or scientific model execution.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -33,13 +34,40 @@ REQUIRED = {
     "run_dp_ts.py",
     "slabsite.py",
 }
-FORBIDDEN_PREFIXES = ("recnet_adapter/", "network_builder/", "network_inputs/")
+FORBIDDEN_PREFIXES = ("recnet_adapter/", "recnet_backend/", "network_builder/", "network_inputs/")
 FORBIDDEN_PARTS = ("/tests/", "/evidence/", "/sai/")
 
 
 def run(command, cwd, env):
     print("+", " ".join(map(str, command)), flush=True)
     subprocess.run(list(map(str, command)), cwd=cwd, env=env, check=True, timeout=180)
+
+
+def make_probe_env(interpreter, directory: Path, scratch: Path, env: dict, dependencies):
+    """Use the selected environment, not the base Python of a nested venv.
+
+    Plain .pth directory entries expose third-party files without processing the
+    source environment's .pth files (which may point editable Recnet to source).
+    """
+    query = "import json,sysconfig; print(json.dumps(sorted({sysconfig.get_path('purelib'), sysconfig.get_path('platlib')})))"
+    source_dirs = json.loads(subprocess.check_output(
+        [str(interpreter), "-I", "-c", query], cwd=scratch, env=env, text=True))
+    run([interpreter, "-m", "venv", directory], scratch, env)
+    python = directory / "bin/python"
+    destination, *_ = json.loads(subprocess.check_output(
+        [str(python), "-I", "-c", query], cwd=scratch, env=env, text=True))
+    Path(destination, "recnet_probe_dependencies.pth").write_text(
+        "\n".join(source_dirs) + "\n", encoding="utf-8")
+    probe = (
+        "from pathlib import Path; import importlib; "
+        f"roots=[Path(p).resolve() for p in {source_dirs!r}]; "
+        f"modules=[importlib.import_module(n) for n in {dependencies!r}]; "
+        "assert all(any(Path(m.__file__).resolve().is_relative_to(r) for r in roots) "
+        "for m in modules), [(m.__name__, m.__file__) for m in modules]; "
+        "print('PASS selected dependency origins:', [(m.__name__, m.__file__) for m in modules])"
+    )
+    run([python, "-c", probe], scratch, env)
+    return python
 
 
 def main() -> int:
@@ -54,6 +82,7 @@ def main() -> int:
         env.pop(key, None)
     env.update(
         PYTHONDONTWRITEBYTECODE="1",
+        PYTHONNOUSERSITE="1",
         MPLBACKEND="Agg",
         PIP_DISABLE_PIP_VERSION_CHECK="1",
     )
@@ -93,12 +122,8 @@ def main() -> int:
 
         for mode in ("wheel", "editable"):
             venv = scratch / mode
-            run(
-                [sys.executable, "-m", "venv", "--system-site-packages", venv],
-                scratch,
-                env,
-            )
-            python = venv / "bin/python"
+            python = make_probe_env(sys.executable, venv, scratch, env,
+                                    ["ase", "numpy", "scipy", "yaml", "sella", "deepmd"])
             target = [wheel] if mode == "wheel" else ["--editable", ROOT]
             run(
                 [
@@ -106,6 +131,7 @@ def main() -> int:
                     "-m",
                     "pip",
                     "install",
+                    "--ignore-installed",
                     "--no-deps",
                     "--no-build-isolation",
                     "--no-index",
@@ -118,7 +144,8 @@ def main() -> int:
             probe = (
                 "from pathlib import Path; "
                 "import importlib.metadata as metadata; "
-                "import handlers, ccqn, utils, slabsite; "
+                "import sys; import handlers, ccqn, utils, slabsite; "
+                "assert not any(n.split('.')[0] in {'recnet_adapter', 'recnet_backend', 'network_builder'} for n in sys.modules); "
                 f"root=Path({str(expected)!r}).resolve(); "
                 "assert all(Path(mod.__file__).resolve().is_relative_to(root) "
                 "for mod in (handlers, ccqn, utils, slabsite)); "
@@ -126,16 +153,19 @@ def main() -> int:
                 "print('PASS core installed paths and version')"
             )
             run([python, "-c", probe], scratch, env)
+            help_dir = scratch / f"help-{mode}"
+            help_dir.mkdir()
+            result = subprocess.run([str(python), "-m", "run_dp_ts", "--help"],
+                                    cwd=help_dir, env=env, capture_output=True, text=True, timeout=60)
+            if result.returncode or "usage:" not in result.stdout.lower() or list(help_dir.iterdir()):
+                raise RuntimeError(f"Installed CLI help failed: {result.stdout} {result.stderr}")
+            print(f"PASS {mode} installed CLI help without outputs", flush=True)
 
         if args.pipeline_python:
             venv = scratch / "pipeline"
-            run(
-                [args.pipeline_python, "-m", "venv", "--system-site-packages", venv],
-                scratch,
-                env,
-            )
-            python = venv / "bin/python"
-            run([python, "-m", "pip", "install", "--no-deps", "--no-index", wheel], scratch, env)
+            python = make_probe_env(args.pipeline_python, venv, scratch, env,
+                                    ["ase", "numpy", "scipy", "yaml", "sella", "deepmd"])
+            run([python, "-m", "pip", "install", "--ignore-installed", "--no-deps", "--no-index", wheel], scratch, env)
             probe = (
                 "from pathlib import Path; "
                 "import handlers, ccqn, utils, slabsite, run_dp_ts; "
