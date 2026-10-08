@@ -38,6 +38,20 @@ def expected_members() -> set[str]:
     return members
 
 
+def validate_wheel_members(names: set[str]) -> None:
+    """Reject a missing core file or any package outside the core allowlist."""
+    missing = expected_members() - names
+    if missing:
+        raise RuntimeError(f"Missing wheel members: {sorted(missing)}")
+    top_level = {name.split("/", 1)[0] for name in names}
+    unexpected = sorted(
+        entry for entry in top_level
+        if entry not in ALLOWED_TOP_LEVEL and not entry.endswith(".dist-info")
+    )
+    if unexpected:
+        raise RuntimeError(f"Unexpected top-level wheel entries: {unexpected}")
+
+
 def run(command, cwd, env):
     print("+", " ".join(map(str, command)), flush=True)
     subprocess.run(list(map(str, command)), cwd=cwd, env=env, check=True, timeout=180)
@@ -108,17 +122,7 @@ def main() -> int:
         wheel, = wheel_dir.glob("*.whl")
         with zipfile.ZipFile(wheel) as archive:
             names = set(archive.namelist())
-        missing = expected_members() - names
-        if missing:
-            raise RuntimeError(f"Missing wheel members: {sorted(missing)}")
-        top_level = {name.split("/", 1)[0] for name in names}
-        unexpected = sorted(
-            entry
-            for entry in top_level
-            if entry not in ALLOWED_TOP_LEVEL and not entry.endswith(".dist-info")
-        )
-        if unexpected:
-            raise RuntimeError(f"Unexpected top-level wheel entries: {unexpected}")
+        validate_wheel_members(names)
 
         for mode in ("wheel", "editable"):
             venv = scratch / mode

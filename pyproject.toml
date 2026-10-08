@@ -10,11 +10,11 @@ version = "0.0.1"
 readme = "README.md"
 description = "Recnet core: reaction-network transition-state workflow (handlers/ccqn/utils)"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["ase", "numpy", "scipy", "PyYAML", "sella", "deepmd-kit[torch]>=3.2.0b1.dev67"]
 
 [project.optional-dependencies]
-core = ["ase", "numpy", "scipy", "PyYAML"]
-pipeline = ["ase", "numpy", "scipy", "PyYAML", "sella", "deepmd-kit[torch]>=3.2.0b1.dev67"]
+core = [] # compatibility alias; base installation includes the workflow dependencies
+pipeline = [] # compatibility alias
 dev = ["pytest>=7", "ruff>=0.9"]
 
 [tool.setuptools]

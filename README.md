@@ -15,17 +15,19 @@ remote upstream.
 Use a separate environment with the appropriate scientific dependencies:
 
 ```bash
-python -m pip install -e '.[pipeline,dev]'
+python -m pip install -e '.[dev]'
 python -m run_dp_ts --help
 make check PYTHON=python
 ```
 
-The `core` extra declares ASE, NumPy, SciPy and PyYAML. Importing the entire
-workflow also requires `pipeline`, which includes those dependencies plus
-Sella and DeepMD's PyTorch support. The `dev` extra supplies local quality tools.
+The base installation declares ASE, NumPy, SciPy, PyYAML, Sella and DeepMD's
+PyTorch support because importing the core workflow loads those modules.
+The `core` and `pipeline` extras remain accepted as empty compatibility aliases.
+The `dev` extra supplies local quality tools.
 Build/install probes additionally need pip, setuptools and wheel.
 
-`make check` runs correctness lint and wheel/editable installation probes.
+`make check` runs correctness lint, negative tests for the wheel allowlist,
+and wheel/editable installation probes.
 The probes reuse the selected interpreter's dependency directories in private
 venvs, verify actual dependency and package import locations, and check the
 installed CLI help from outside the source directory. They do not execute
