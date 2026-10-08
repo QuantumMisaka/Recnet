@@ -1,10 +1,12 @@
 """Core-only wheel/editable install gate (no adapter/builder assumptions).
 
-Builds the wheel from this worktree, asserts core members and absence of
-fork-only payloads, then probes wheel and editable installs in throwaway
-venvs. Dependency directories come from the selected interpreter, without
-executing parent editable hooks. This checks installed package behavior, not
-fresh dependency resolution or scientific model execution.
+Builds the wheel from this worktree, asserts every source member of the core
+packages/modules is shipped and that the wheel's top-level entries are exactly
+the allowlisted core ones (no fork payloads, no historical scripts), then
+probes wheel and editable installs in throwaway venvs. Dependency directories
+come from the selected interpreter, without executing parent editable hooks.
+This checks installed package behavior, not fresh dependency resolution or
+scientific model execution.
 """
 from __future__ import annotations
 
@@ -19,23 +21,21 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
-REQUIRED = {
-    "handlers/__init__.py",
-    "handlers/context.py",
-    "handlers/energy.py",
-    "handlers/ts.py",
-    "handlers/workflow.py",
-    "ccqn/__init__.py",
-    "ccqn/ccqn.py",
-    "utils/__init__.py",
-    "utils/config.py",
-    "utils/constraints.py",
-    "utils/geometry.py",
-    "run_dp_ts.py",
-    "slabsite.py",
-}
-FORBIDDEN_PREFIXES = ("recnet_adapter/", "recnet_backend/", "network_builder/", "network_inputs/")
-FORBIDDEN_PARTS = ("/tests/", "/evidence/", "/sai/")
+PACKAGES = ("handlers", "ccqn", "utils")
+PY_MODULES = ("run_dp_ts.py", "slabsite.py")
+ALLOWED_TOP_LEVEL = set(PACKAGES) | set(PY_MODULES)
+
+
+def expected_members() -> set[str]:
+    """Source-tree ground truth for the wheel member set (core only)."""
+    members: set[str] = set()
+    for package in PACKAGES:
+        for path in sorted((ROOT / package).rglob("*.py")):
+            members.add(path.relative_to(ROOT).as_posix())
+    for module in PY_MODULES:
+        if (ROOT / module).is_file():
+            members.add(module)
+    return members
 
 
 def run(command, cwd, env):
@@ -108,17 +108,17 @@ def main() -> int:
         wheel, = wheel_dir.glob("*.whl")
         with zipfile.ZipFile(wheel) as archive:
             names = set(archive.namelist())
-        missing = REQUIRED - names
+        missing = expected_members() - names
         if missing:
             raise RuntimeError(f"Missing wheel members: {sorted(missing)}")
-        bad = sorted(
-            name
-            for name in names
-            if name.startswith(FORBIDDEN_PREFIXES)
-            or any(part in name for part in FORBIDDEN_PARTS)
+        top_level = {name.split("/", 1)[0] for name in names}
+        unexpected = sorted(
+            entry
+            for entry in top_level
+            if entry not in ALLOWED_TOP_LEVEL and not entry.endswith(".dist-info")
         )
-        if bad:
-            raise RuntimeError(f"Wheel contains fork-only payloads: {bad}")
+        if unexpected:
+            raise RuntimeError(f"Unexpected top-level wheel entries: {unexpected}")
 
         for mode in ("wheel", "editable"):
             venv = scratch / mode

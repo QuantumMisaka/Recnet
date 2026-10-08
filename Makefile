@@ -10,7 +10,7 @@ LINT_PYTHON ?= $(PYTHON)
 check: lint install-smoke
 
 lint:
-	"$(LINT_PYTHON)" -m ruff check handlers ccqn utils run_dp_ts.py slabsite.py
+	"$(LINT_PYTHON)" -m ruff check handlers ccqn utils run_dp_ts.py slabsite.py scripts
 
 install-smoke:
 	"$(PYTHON)" scripts/check_core_install.py --pipeline-python "$(PIPELINE_PYTHON)"
